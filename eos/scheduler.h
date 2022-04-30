@@ -25,27 +25,47 @@ SOFTWARE.
 #ifndef _EOS_SCHEDULER_H_
 #define _EOS_SCHEDULER_H_
 
+
 #include "eos.h"
+
+
 
 //this is the format we expect from threads or tasks
 typedef void (*EOSTaskFunction)(EOSStackT stack, void *args);
 
+
+typedef enum {
+    kEOSBlockSrcNone,  //used to notify ISR events (//may be faster than scheduler)
+    kEOSBlockSrcDelay,
+    kEOSBlockSrcMail
+} EOSBlockSourceT;
+
 typedef struct EOSStaticTask
 {
+    //task basic informatino
     EOSStackT stack; //user assigned stack pointer
     uint32_t stack_size; //user assigned stack len
     void *args; //user task custom arguments
     EOSTaskFunction task; //the execution task function
-    EOSTaskStateT state;    //task state
+    uint8_t priority; //assigned task priority
+    char name[EOS_TASK_MAX_NAME_LEN]; //for printing stats
+    
+
+    //dalay/block variables
     uint32_t unblock_tick;      //if task is blocked... this saves when it will be unblocked
     bool tick_over_flow; //signals if it have to wait eos_tick overrun
     uint32_t ticks_to_delay; //how many ticks is gonna wait to unblock
-    uint8_t priority; //assigned task priority
-    //for list handling
+    
+    
+    uint32_t mail_value;
+    uint32_t mail_count;  //how many signals received
+    EOSBlockSourceT block_source; //if a task state is different from yield, but there is no source... block is discarted
+    
+    //list handling
     struct EOSStaticTask *prev;
     struct EOSStaticTask *next;
     
-    void *belong_to_list; //owner list
+    void *parent_list; //owner list
 }EOSStaticTaskT;
 
 //task handler
@@ -58,6 +78,7 @@ typedef EOSStaticTaskT *EOSTaskT;
 #define EOS_DELAY(ticks)                                                \
     do {                                                                \
         *eos_jumper = &&CONCAT(EOS_DELAY_LABEL, __LINE__);              \
+        eos_running_task->block_source = kEOSBlockSrcDelay;             \
         if((ticks) == EOS_INFINITE_TICKS)                               \
         {                                                               \
             *eos_task_state = kEOSTaskSuspended;                        \
@@ -79,7 +100,7 @@ extern EOSTaskT eos_running_task;
 void EOSTickIncrement(void);
 
 //api for statical task creation
-EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority, uint32_t stack_size, 
+EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority, char *name, uint32_t stack_size, 
                             EOSStaticStack *stack_buffer, EOSStaticTaskT *task_buffer);
 
 //starts schedules activities
@@ -119,9 +140,9 @@ int main ()
     int id1 = 3;
     int id2 = 2;
 
-    EOSCreateStaticTask(thread, &id1, 1, sizeof(stack1), stack1, &task1_buffer);
-    EOSCreateStaticTask(thread, &id2, 1, sizeof(stack2), stack2, &task2_buffer);
-    EOSCreateStaticTask(thread2, NULL, 2, sizeof(stack3), stack3, &task3_buffer);
+    EOSCreateStaticTask(thread, &id1, 1, "t1", sizeof(stack1), stack1, &task1_buffer);
+    EOSCreateStaticTask(thread, &id2, 1, "t2", sizeof(stack2), stack2, &task2_buffer);
+    EOSCreateStaticTask(thread2, NULL, 2, "t3", sizeof(stack3), stack3, &task3_buffer);
     
     
     EOSScheduler();

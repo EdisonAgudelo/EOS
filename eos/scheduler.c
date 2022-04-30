@@ -22,129 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-
+#include "config.h"
 #include "scheduler.h" 
+#include "list.h"
 
-//this allows critical section execution
-//if there is no a general function to do that, you can manually disables 
-//thos peripheral that may generate any EOS notification... for example the tick interrupt
-#ifndef portEOS_DISABLE_ISR
-#define portEOS_DISABLE_ISR()
-#endif
+#include <string.h>
 
-#ifndef portEOS_ENABLE_ISR
-#define portEOS_ENABLE_ISR()
-#endif
 
-//how many individual priorities is gonna exist. Task may share same priority number
-#ifndef EOS_MAX_TASK_PRIORITY
-#define EOS_MAX_TASK_PRIORITY 2
-#endif
 
-//task are handled in list... so the next macros is for list handling
-
-//Add a task to list tail
-#define EOS_ADD_TO_LIST(list, task)     \
-    if((list).head == NULL)             \
-    {                                   \
-        (list).head = task;             \
-        (task)->prev = NULL;            \
-        (task)->next = NULL;            \
-        (list).tail = task;             \
-        (task)->belong_to_list = &list; \
-    } else if((list).tail != NULL)      \
-    {                                   \
-        (list).tail->next = task;       \
-        (task)->prev = (list).tail;     \
-        (task)->next = NULL;            \
-        (list).tail = task;             \
-        (task)->belong_to_list = &list; \
-    } else                              \
-    {                                   \
-        EOS_ASSERT(false);                   \
-    }
-
-//remove a task from a list
-#define EOS_REMOVE_FROM_LIST(list, task)        \
-    if((task)->prev == NULL)                    \
-    {                                           \
-        (list).head = (task)->next;             \
-        if((list).head)                         \
-            (list).head->prev = NULL;           \
-    } else                                      \
-    {                                           \
-        (task)->prev->next = (task)->next;      \
-    }                                           \
-    if((task)->next == NULL)                    \
-    {                                           \
-        (list).tail = (task)->prev;             \
-        if((list).tail)                         \
-            (list).tail->next = NULL;           \
-    } else                                      \
-    {                                           \
-        (task)->next->prev = (task)->prev;      \
-    }                                           \
-    (task)->next = NULL;                        \
-    (task)->prev = NULL;                        \
-    (task)->belong_to_list = NULL
-
-//index is "list depending" meaning. Eg. for ready_list
-//it holds the next task to execute to allows true yielding 
-//even when higer priority list preempt actual list
-#define EOS_SET_LIST_INDEX(list, task)          \
-    (list).index = task
-
-//the starting point of the list
-#define EOS_GET_HEAD_FROM_LIST(list)     (list).head
-//to go foward
-#define EOS_GET_NEXT_FROM_ITEM(task)     (task)->next
-//to go backward
-#define EOS_GET_PREV_FROM_ITEM(task)     (task)->prev
-
-//insert operations
-
-//intem <=> item <=> ref_task <=> item <=> item
-//intem <=> item <=> ref_task <=> new_task <=> item <=> item
-#define EOS_INSERT_NEXT_TO_ITEM_IN_LIST(list, ref_task, new_task)   \
-    if((ref_task) != NULL)                                          \
-    {                                                               \
-        (new_task)->next = (ref_task)->next;                        \
-        (ref_task)->next = new_task;                                \
-        (new_task)->prev = ref_task;                                \
-        (new_task)->belong_to_list = &list;                         \
-        if((new_task)->next == NULL)                                \
-            (list).tail = new_task;                                 \
-        else                                                        \
-            (new_task)->next->prev = new_task;                      \
-    }
-
-//intem <=> item <=> ref_task <=> item <=> item
-//intem <=> item <=> new_task <=> ref_task <=> item <=> item
-#define EOS_INSERT_PREV_TO_ITEM_IN_LIST(list, new_task, ref_task)   \
-    if((ref_task) != NULL)                                          \
-    {                                                               \
-        (new_task)->prev = (ref_task)->prev;                        \
-        (ref_task)->prev = new_task;                                \
-        (new_task)->next = ref_task;                                \
-        (new_task)->belong_to_list = &list;                         \
-        if((new_task)->prev == NULL)                                \
-            (list).head = new_task;                                 \
-        else                                                        \
-            (new_task)->prev->next = new_task;                      \
-    }
-
-//calculate how many ticks is left even if ticks overflow //useful for long term applications
-#define EOS_DELAY_REMAIN(unblock_tick)                      \
-    (eos_tick <= (unblock_tick) ?                           \
-    ((unblock_tick) - eos_tick) :                           \
-    ((0xffffffff - (eos_tick - (unblock_tick))) + 1))
-
-//list body
-typedef struct {
-    EOSTaskT head;
-    EOSTaskT tail;
-    EOSTaskT index;
-}EOSListT;
 
 //holds the actual tick of system
 uint32_t eos_tick = 0;
@@ -195,6 +80,7 @@ void EOSTickIncrement(void)
                 EOS_REMOVE_FROM_LIST(blocked_list, delayed_task);
                 EOS_ADD_TO_LIST(ready_list[delayed_task->priority], delayed_task);
                 delayed_task->ticks_to_delay = 0; //signals timeout
+                delayed_task->block_source = kEOSBlockSrcNone;
             } else 
             {
                 break; //we just finish to unblock task waiting for the actual tick
@@ -261,7 +147,7 @@ void EOSScheduler(void)
     EOSStaticStack idle_stack[EOS_WATER_MARK_STACK_ROOM + EOS_MIN_STACK];
     EOSStaticTaskT idle_task_buffer;
     
-    EOSCreateStaticTask(EOSIdleTask, NULL, 0, sizeof(idle_stack), idle_stack, &idle_task_buffer);
+    EOSCreateStaticTask(EOSIdleTask, NULL, 0, "Idle",sizeof(idle_stack), idle_stack, &idle_task_buffer);
 
     while(eos_tick < 40)
     {
@@ -293,6 +179,9 @@ void EOSScheduler(void)
                 break;
             case kEOSTaskBlocked:
             
+                if(eos_running_task->block_source == kEOSBlockSrcNone)
+                    break;
+            
                 EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task);
                 
                 eos_running_task->unblock_tick = eos_tick + eos_running_task->ticks_to_delay;
@@ -314,6 +203,10 @@ void EOSScheduler(void)
                 
                 break;
             case kEOSTaskSuspended:
+            
+                if(eos_running_task->block_source == kEOSBlockSrcNone)
+                    break;
+                    
                 EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task);
                 EOS_ADD_TO_LIST(suspended_list, eos_running_task);
                 break;
@@ -330,7 +223,7 @@ void EOSScheduler(void)
 
 
 //init a task and add it to the ready list according to priority
-EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority, uint32_t stack_size, EOSStaticStack *stack_buffer, EOSStaticTaskT *task_buffer)
+EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority, char *name, uint32_t stack_size, EOSStaticStack *stack_buffer, EOSStaticTaskT *task_buffer)
 {
     portEOS_DISABLE_ISR();
     
@@ -338,9 +231,16 @@ EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority,
     task_buffer->stack_size = stack_size;
     task_buffer->args = args;
     task_buffer->task = task;
-    task_buffer->state = kEOSTaskYield;
+    
     task_buffer->unblock_tick = 0;
     task_buffer->priority = priority <= EOS_MAX_TASK_PRIORITY ? priority : EOS_MAX_TASK_PRIORITY;
+    
+    strncpy(task_buffer->name, name, EOS_TASK_MAX_NAME_LEN);
+    task_buffer->name[EOS_TASK_MAX_NAME_LEN - 1] = '\0'; 
+    
+    task_buffer->mail_value = 0;
+    task_buffer->mail_count = 0;
+    task_buffer->block_source = kEOSBlockSrcNone;
 
     EOS_INIT_STACK(stack_buffer, stack_size);
     EOS_ADD_TO_LIST(ready_list[task_buffer->priority], task_buffer);
