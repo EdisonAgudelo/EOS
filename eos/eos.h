@@ -29,16 +29,13 @@ SOFTWARE.
 #include <string.h>
 #include <stdbool.h>
 
-#include "eos_config.h"
+#include "config.h"
 
 #define _CONCAT(x,y) x ## y
 #ifndef CONCAT
 #define CONCAT(x,y) _CONCAT(x,y)
 #endif
 
-#ifndef EOS_ASSERT
-#define EOS_ASSERT(cond)
-#endif
 
 //should be placed at top of any task or nest function
 #define EOS_INIT(stack)                     \
@@ -130,12 +127,7 @@ SOFTWARE.
 //this is the minimun amout of bytes required per each stack an nested function
 #define EOS_MIN_STACK (sizeof(EOSJumperT) + sizeof(EOSTaskStateT))
 //to check stack over flow
-#ifndef EOS_WATER_MARK_SYMBOL
-#define EOS_WATER_MARK_SYMBOL 0x5a
-#endif
-#ifndef EOS_WATER_MARK_STACK_ROOM
-#define EOS_WATER_MARK_STACK_ROOM 8
-#endif
+
 
 //if stack over flow checking is required... the this macro must be called before any task spawn
 #define EOS_INIT_STACK(stack, size)                                                                             \
