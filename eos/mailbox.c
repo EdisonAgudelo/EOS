@@ -29,23 +29,25 @@ SOFTWARE.
 
 
 extern EOSListT ready_list[];
-extern EOSListT blocked_list;
-extern EOSListT suspended_list;
 
 
-void EOSMailSend(EOSTaskT task, uint32_t mail)
+//return tru if higer priority was woken
+bool EOSMailSendISR(EOSTaskT task, uint32_t mail)
 {
+    bool high_priority = false;
     portEOS_DISABLE_ISR();
     task->mail_value = mail;
     task->mail_count++;
     if(task->block_source == kEOSBlockSrcMail){
+        high_priority = task->priority > eos_running_task->priority;
         task->block_source = kEOSBlockSrcNone;
-        if(!EOS_ITEM_BELONG_TO_LIST(ready_list[task->priority], task) && task->parent_list != NULL)
+        if(!EOS_ITEM_BELONG_TO_LIST(ready_list[task->priority], task, scheduler) && task->scheduler.parent_list != NULL)
         {
             //reomove from either, block or suspended
-            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->parent_list), task);
-            EOS_ADD_TO_LIST(ready_list[task->priority], task);
+            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->scheduler.parent_list), task, scheduler);
+            EOS_ADD_TO_LIST(ready_list[task->priority], task, scheduler);
         }
     }   
     portEOS_ENABLE_ISR();
+    return high_priority;
 }

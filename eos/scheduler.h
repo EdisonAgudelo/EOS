@@ -37,7 +37,8 @@ typedef void (*EOSTaskFunction)(EOSStackT stack, void *args);
 typedef enum {
     kEOSBlockSrcNone,  //used to notify ISR events (//may be faster than scheduler)
     kEOSBlockSrcDelay,
-    kEOSBlockSrcMail
+    kEOSBlockSrcMail,
+    kEOSBlockSrcSemaphore
 } EOSBlockSourceT;
 
 typedef struct EOSStaticTask
@@ -62,10 +63,11 @@ typedef struct EOSStaticTask
     EOSBlockSourceT block_source; //if a task state is different from yield, but there is no source... block is discarted
     
     //list handling
-    struct EOSStaticTask *prev;
-    struct EOSStaticTask *next;
-    
-    void *parent_list; //owner list
+    struct {
+        struct EOSStaticTask *prev;
+        struct EOSStaticTask *next;
+        void *parent_list; //owner list
+    } scheduler, sync; //scheduler basically for time events. sync for resorces as mutex
 }EOSStaticTaskT;
 
 //task handler
