@@ -63,7 +63,12 @@ SOFTWARE.
             success;                                                                        \
         })
 
+//send a mail to a task auto yields if mailed task was waiting for it and have higer priority
+#define EOS_MAIL_SEND(task, mail)   \
+    if(EOSMailSendISR(task, mail))  \
+        EOS_YIELD()
 
+//clear any message in box
 #define EOS_MAIL_CLEAR()                        \
     do{                                         \
             portEOS_DISABLE_ISR();              \
@@ -71,7 +76,8 @@ SOFTWARE.
             portEOS_ENABLE_ISR();               \
     } while(0)
 
-void EOSMailSend(EOSTaskT task, uint32_t mail);
+//can be called outside EOS scope
+bool EOSMailSendISR(EOSTaskT task, uint32_t mail);
 
 
 #endif
@@ -145,7 +151,7 @@ void thread2 (EOSStackT stack, void *args)
         (*counter)++;
         printf("thread2 send noty_val %u\n", *counter);
         
-        EOSMailSend(g_task_to_notify, *counter);
+        EOS_MAIL_SEND(g_task_to_notify, *counter);
                
     }
 

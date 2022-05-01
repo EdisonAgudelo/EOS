@@ -77,10 +77,16 @@ void EOSTickIncrement(void)
         } else {
             if(delayed_task->unblock_tick <= eos_tick)
             {
-                EOS_REMOVE_FROM_LIST(blocked_list, delayed_task);
-                EOS_ADD_TO_LIST(ready_list[delayed_task->priority], delayed_task);
+                EOS_REMOVE_FROM_LIST(blocked_list, delayed_task, scheduler);
+                EOS_ADD_TO_LIST(ready_list[delayed_task->priority], delayed_task, scheduler);
                 delayed_task->ticks_to_delay = 0; //signals timeout
                 delayed_task->block_source = kEOSBlockSrcNone;
+                
+                //sync lists
+                if(delayed_task->sync.parent_list){
+                    //reomove from semaphores or any other sync list
+                    EOS_REMOVE_FROM_LIST(*((EOSListT *)delayed_task->sync.parent_list), delayed_task, sync);
+                }
             } else 
             {
                 break; //we just finish to unblock task waiting for the actual tick
@@ -126,7 +132,7 @@ static EOSTaskT EOSGetNextTaskToRun(void)
             
             portEOS_ENABLE_ISR();
             
-            return ((ready_list[priority].index == NULL) ? task_to_run : ready_list[priority].index);
+            return ((EOS_GET_INDEX_FROM_LIST(ready_list[priority]) == NULL) ? task_to_run : ready_list[priority].index);
         }
     } while(priority--);
     
@@ -164,13 +170,13 @@ void EOSScheduler(void)
         //get the nex canditade to run in the same priority level
         //we save this as the actual "first" element of the list... useful for true yielding
         //even wen there is multiple preemption
-        EOS_SET_LIST_INDEX(ready_list[eos_running_task->priority], EOS_GET_NEXT_FROM_ITEM(eos_running_task));
+        EOS_SET_LIST_INDEX(ready_list[eos_running_task->priority], EOS_GET_NEXT_FROM_ITEM(eos_running_task, scheduler));
         
         //then we can update task state moving through list owner
         switch(*((EOSTaskStateT *)eos_running_task->stack))
         {
             case kEOSTaskEnded://the task/function ended all its routines
-                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task);
+                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task, scheduler);
                 break;
             
             //just go ahead
@@ -182,23 +188,23 @@ void EOSScheduler(void)
                 if(eos_running_task->block_source == kEOSBlockSrcNone)
                     break;
             
-                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task);
+                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task, scheduler);
                 
                 eos_running_task->unblock_tick = eos_tick + eos_running_task->ticks_to_delay;
                 eos_running_task->tick_over_flow = eos_running_task->unblock_tick < eos_tick;
                     
                 
                 //lock for a task that have more delay than eos_running_task
-                for(index_task = EOS_GET_HEAD_FROM_LIST(blocked_list); index_task != NULL; index_task = EOS_GET_NEXT_FROM_ITEM(index_task))
+                for(index_task = EOS_GET_HEAD_FROM_LIST(blocked_list); index_task != NULL; index_task = EOS_GET_NEXT_FROM_ITEM(index_task, scheduler))
                 {
                     if(EOS_DELAY_REMAIN(index_task->unblock_tick)>EOS_DELAY_REMAIN(eos_running_task->unblock_tick))
                         break;
                 }
                 if(index_task == NULL)
                 {
-                    EOS_ADD_TO_LIST(blocked_list, eos_running_task);
+                    EOS_ADD_TO_LIST(blocked_list, eos_running_task, scheduler);
                 } else {
-                    EOS_INSERT_PREV_TO_ITEM_IN_LIST(blocked_list, eos_running_task, index_task);
+                    EOS_INSERT_PREV_TO_ITEM_IN_LIST(blocked_list, eos_running_task, index_task, scheduler);
                 }
                 
                 break;
@@ -207,8 +213,8 @@ void EOSScheduler(void)
                 if(eos_running_task->block_source == kEOSBlockSrcNone)
                     break;
                     
-                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task);
-                EOS_ADD_TO_LIST(suspended_list, eos_running_task);
+                EOS_REMOVE_FROM_LIST(ready_list[eos_running_task->priority], eos_running_task, scheduler);
+                EOS_ADD_TO_LIST(suspended_list, eos_running_task, scheduler);
                 break;
             
             default:
@@ -243,7 +249,9 @@ EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority,
     task_buffer->block_source = kEOSBlockSrcNone;
 
     EOS_INIT_STACK(stack_buffer, stack_size);
-    EOS_ADD_TO_LIST(ready_list[task_buffer->priority], task_buffer);
+    EOS_ADD_TO_LIST(ready_list[task_buffer->priority], task_buffer, scheduler);
+    
+    task_buffer->sync.parent_list = NULL;
     
     portEOS_ENABLE_ISR();
     

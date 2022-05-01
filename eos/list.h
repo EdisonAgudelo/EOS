@@ -31,49 +31,53 @@ SOFTWARE.
 //task are handled in list... so the next macros is for list handling
 
 //Add a task to list tail
-#define EOS_ADD_TO_LIST(list, task)         \
-    if((list).head == NULL)                 \
-    {                                       \
-        (list).head = task;                 \
-        (task)->prev = NULL;                \
-        (task)->next = NULL;                \
-        (list).tail = task;                 \
-        (task)->parent_list = &(list);      \
-    } else if((list).tail != NULL)          \
-    {                                       \
-        (list).tail->next = task;           \
-        (task)->prev = (list).tail;         \
-        (task)->next = NULL;                \
-        (list).tail = task;                 \
-        (task)->parent_list = &(list);      \
-    } else                                  \
-    {                                       \
-        EOS_ASSERT(false);                  \
-    }
+#define EOS_ADD_TO_LIST(list, task, link)               \
+    do {                                                \
+        if((list).head == NULL)                         \
+        {                                               \
+            (list).head = task;                         \
+            (task)->link.prev = NULL;                   \
+            (task)->link.next = NULL;                   \
+            (list).tail = task;                         \
+            (task)->link.parent_list = &(list);         \
+        } else if((list).tail != NULL)                  \
+        {                                               \
+            (list).tail->link.next = task;              \
+            (task)->link.prev = (list).tail;            \
+            (task)->link.next = NULL;                   \
+            (list).tail = task;                         \
+            (task)->link.parent_list = &(list);         \
+        } else                                          \
+        {                                               \
+            EOS_ASSERT(false);                          \
+        }                                               \
+    }while(0)
 
 //remove a task from a list
-#define EOS_REMOVE_FROM_LIST(list, task)        \
-    if((task)->prev == NULL)                    \
-    {                                           \
-        (list).head = (task)->next;             \
-        if((list).head)                         \
-            (list).head->prev = NULL;           \
-    } else                                      \
-    {                                           \
-        (task)->prev->next = (task)->next;      \
-    }                                           \
-    if((task)->next == NULL)                    \
-    {                                           \
-        (list).tail = (task)->prev;             \
-        if((list).tail)                         \
-            (list).tail->next = NULL;           \
-    } else                                      \
-    {                                           \
-        (task)->next->prev = (task)->prev;      \
-    }                                           \
-    (task)->next = NULL;                        \
-    (task)->prev = NULL;                        \
-    (task)->parent_list = NULL
+#define EOS_REMOVE_FROM_LIST(list, task, link)              \
+    do{                                                     \
+        if((task)->link.prev == NULL)                           \
+        {                                                       \
+            (list).head = (task)->link.next;                    \
+            if((list).head)                                     \
+                (list).head->link.prev = NULL;                  \
+        } else                                                  \
+        {                                                       \
+            (task)->link.prev->link.next = (task)->link.next;   \
+        }                                                       \
+        if((task)->link.next == NULL)                           \
+        {                                                       \
+            (list).tail = (task)->link.prev;                    \
+            if((list).tail)                                     \
+                (list).tail->link.next = NULL;                  \
+        } else                                                  \
+        {                                                       \
+            (task)->link.next->link.prev = (task)->link.prev;   \
+        }                                                       \
+        (task)->link.next = NULL;                               \
+        (task)->link.prev = NULL;                               \
+        (task)->link.parent_list = NULL;                        \
+    } while(0)
 
 //index is "list depending" meaning. Eg. for ready_list
 //it holds the next task to execute to allows true yielding 
@@ -81,46 +85,52 @@ SOFTWARE.
 #define EOS_SET_LIST_INDEX(list, task)          \
     (list).index = task
 
+//to get custom pointer from list
+#define EOS_GET_INDEX_FROM_LIST(list)            ((list).index)
 //the starting point of the list
-#define EOS_GET_HEAD_FROM_LIST(list)     (list).head
+#define EOS_GET_HEAD_FROM_LIST(list)            ((list).head)
 //to go foward
-#define EOS_GET_NEXT_FROM_ITEM(task)     (task)->next
+#define EOS_GET_NEXT_FROM_ITEM(task, link)      ((task)->link.next)
 //to go backward
-#define EOS_GET_PREV_FROM_ITEM(task)     (task)->prev
+#define EOS_GET_PREV_FROM_ITEM(task, link)      ((task)->link.prev)
 
-#define EOS_ITEM_BELONG_TO_LIST(list, task)     ((task)->parent_list == (&(list)))
+#define EOS_ITEM_BELONG_TO_LIST(list, task, link)     ((task)->link.parent_list == (&(list)))
 
 //insert operations
 
 //intem <=> item <=> ref_task <=> item <=> item
 //intem <=> item <=> ref_task <=> new_task <=> item <=> item
-#define EOS_INSERT_NEXT_TO_ITEM_IN_LIST(list, ref_task, new_task)   \
-    if((ref_task) != NULL)                                          \
-    {                                                               \
-        (new_task)->next = (ref_task)->next;                        \
-        (ref_task)->next = new_task;                                \
-        (new_task)->prev = ref_task;                                \
-        (new_task)->parent_list = &(list);                          \
-        if((new_task)->next == NULL)                                \
-            (list).tail = new_task;                                 \
-        else                                                        \
-            (new_task)->next->prev = new_task;                      \
-    }
+#define EOS_INSERT_NEXT_TO_ITEM_IN_LIST(list, ref_task, new_task, link)             \
+    do{                                                                             \
+        if((ref_task) != NULL)                                                      \
+        {                                                                           \
+            (new_task)->link.next = (ref_task)->link.next;                          \
+            (ref_task)->link.next = new_task;                                       \
+            (new_task)->link.prev = ref_task;                                       \
+            (new_task)->link.parent_list = &(list);                                 \
+            if((new_task)->link.next == NULL)                                       \
+                (list).tail = new_task;                                             \
+            else                                                                    \
+                (new_task)->link.next->link.prev = new_task;                        \
+        }                                                                           \
+    }while(0)
 
 //intem <=> item <=> ref_task <=> item <=> item
 //intem <=> item <=> new_task <=> ref_task <=> item <=> item
-#define EOS_INSERT_PREV_TO_ITEM_IN_LIST(list, new_task, ref_task)   \
-    if((ref_task) != NULL)                                          \
-    {                                                               \
-        (new_task)->prev = (ref_task)->prev;                        \
-        (ref_task)->prev = new_task;                                \
-        (new_task)->next = ref_task;                                \
-        (new_task)->parent_list = &(list);                          \
-        if((new_task)->prev == NULL)                                \
-            (list).head = new_task;                                 \
-        else                                                        \
-            (new_task)->prev->next = new_task;                      \
-    }
+#define EOS_INSERT_PREV_TO_ITEM_IN_LIST(list, new_task, ref_task, link)             \
+    do{                                                                             \
+        if((ref_task) != NULL)                                                      \
+        {                                                                           \
+            (new_task)->link.prev = (ref_task)->link.prev;                          \
+            (ref_task)->link.prev = new_task;                                       \
+            (new_task)->link.next = ref_task;                                       \
+            (new_task)->link.parent_list = &(list);                                 \
+            if((new_task)->link.prev == NULL)                                       \
+                (list).head = new_task;                                             \
+            else                                                                    \
+                (new_task)->link.prev->link.next = new_task;                        \
+        }                                                                           \
+    }while(0)
 
 //calculate how many ticks is left even if ticks overflow //useful for long term applications
 #define EOS_DELAY_REMAIN(unblock_tick)                      \
