@@ -45,13 +45,13 @@ SOFTWARE.
                 *message = eos_running_task->mail_value;                                    \
                 portEOS_ENABLE_ISR()                                                        \
                 success = true;                                                             \
-                goto CONCAT(EOS_MAIL_SKIP_LABEL, __LINE__);                                 \
+                goto CONCAT(EOS_MAIL_END_LABEL, __LINE__);                                  \
             }                                                                               \
             portEOS_ENABLE_ISR()                                                            \
             if((eos_running_task->ticks_to_delay) == 0)                                     \
             {                                                                               \
                 success = false;                                                            \
-                goto CONCAT(EOS_MAIL_SKIP_LABEL, __LINE__);                                 \
+                goto CONCAT(EOS_MAIL_END_LABEL, __LINE__);                                  \
             }                                                                               \
                                                                                             \
             *eos_jumper = &&CONCAT(EOS_MAIL_WAIT_LABEL, __LINE__);                          \
@@ -59,7 +59,7 @@ SOFTWARE.
             *eos_task_state = ((ticks_to_wait) == EOS_INFINITE_TICKS) ?                     \
                                 kEOSTaskSuspended : kEOSTaskBlocked;                        \
             goto EOS_END_LABEL;                                                             \
-            CONCAT(EOS_MAIL_SKIP_LABEL, __LINE__):                                          \
+            CONCAT(EOS_MAIL_END_LABEL, __LINE__):                                          \
             success;                                                                        \
         })
 

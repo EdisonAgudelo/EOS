@@ -38,7 +38,8 @@ typedef enum {
     kEOSBlockSrcNone,  //used to notify ISR events (//may be faster than scheduler)
     kEOSBlockSrcDelay,
     kEOSBlockSrcMail,
-    kEOSBlockSrcSemaphore
+    kEOSBlockSrcSemaphore,
+    kEOSBlockSrcQueue
 } EOSBlockSourceT;
 
 typedef struct EOSStaticTask
