@@ -27,14 +27,13 @@ SOFTWARE.
 extern EOSListT ready_list[];
 
 //can't be called from ISR
-void EOSAddTaskToSemaphore(EOSSemaphoreT semaphore, EOSTaskT task)
+void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
 {
     EOSTaskT index_task;
-    
-    portEOS_DISABLE_ISR();
+
 
     //look for a task that has less priority than actual task
-    for(index_task = EOS_GET_HEAD_FROM_LIST(semaphore->asking_tasks); 
+    for(index_task = EOS_GET_HEAD_FROM_LIST(semaphore->waiting_tasks); 
         index_task != NULL; index_task = EOS_GET_NEXT_FROM_ITEM(index_task, sync))
     {
         if(index_task->priority < task->priority)
@@ -43,15 +42,15 @@ void EOSAddTaskToSemaphore(EOSSemaphoreT semaphore, EOSTaskT task)
     
     if(index_task == NULL)
     {
-        EOS_ADD_TO_LIST(semaphore->asking_tasks, task, sync);
+        EOS_ADD_TO_LIST(semaphore->waiting_tasks, task, sync);
     } else {
-        EOS_INSERT_PREV_TO_ITEM_IN_LIST(semaphore->asking_tasks, task, index_task, sync);
+        EOS_INSERT_PREV_TO_ITEM_IN_LIST(semaphore->waiting_tasks, task, index_task, sync);
     }
     
     if(semaphore->type == kEOSSemphrMutex)
     {
         //get holding task
-        index_task = EOS_GET_INDEX_FROM_LIST(semaphore->asking_tasks);
+        index_task = EOS_GET_INDEX_FROM_LIST(semaphore->waiting_tasks);
         EOS_ASSERT(index_task != NULL);
 
         //inversion priority?
@@ -77,8 +76,6 @@ void EOSAddTaskToSemaphore(EOSSemaphoreT semaphore, EOSTaskT task)
         }
     }
     
-    portEOS_ENABLE_ISR();
-    
 }
 
 
@@ -89,7 +86,7 @@ bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore)
     
     portEOS_DISABLE_ISR();
 
-    holding_task = EOS_GET_INDEX_FROM_LIST(semaphore->asking_tasks);
+    holding_task = EOS_GET_INDEX_FROM_LIST(semaphore->waiting_tasks);
     
     //deinhirent priority
     if(holding_task != NULL && semaphore->original_priority != 0)
@@ -108,13 +105,13 @@ bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore)
     }
 
     do{
-        holding_task = EOS_GET_HEAD_FROM_LIST(semaphore->asking_tasks);
-        EOS_SET_LIST_INDEX(semaphore->asking_tasks, holding_task);
+        holding_task = EOS_GET_HEAD_FROM_LIST(semaphore->waiting_tasks);
+        EOS_SET_LIST_INDEX(semaphore->waiting_tasks, holding_task);
     
         if(holding_task)
         {
-            //reomove from asking_tasks
-            EOS_REMOVE_FROM_LIST(semaphore->asking_tasks, holding_task, sync);
+            //reomove from waiting_tasks
+            EOS_REMOVE_FROM_LIST(semaphore->waiting_tasks, holding_task, sync);
             
             if(holding_task->block_source == kEOSBlockSrcSemaphore){
                 
@@ -151,9 +148,9 @@ EOSSemaphoreT EOSCreateStaticSemphrGen(EOSStaticSemaphoreT *semaphore_buffer, ui
 {
     semaphore_buffer->free_keys = init_count; 
     semaphore_buffer->max_free_keys = max_keys; 
-    semaphore_buffer->asking_tasks.head = NULL;
-    semaphore_buffer->asking_tasks.tail = NULL;
-    semaphore_buffer->asking_tasks.index = NULL;
+    semaphore_buffer->waiting_tasks.head = NULL;
+    semaphore_buffer->waiting_tasks.tail = NULL;
+    semaphore_buffer->waiting_tasks.index = NULL;
     semaphore_buffer->type = type;
     semaphore_buffer->original_priority = 0;
     return semaphore_buffer;
