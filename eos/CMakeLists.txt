@@ -5,7 +5,7 @@ if(NOT DEFINED EOS_CONFIG_PATH)
 endif(NOT DEFINED EOS_CONFIG_PATH)
 
 
-add_library(EOS
+add_library(EOS STATIC
     ${CMAKE_CURRENT_LIST_DIR}/config.h
     ${CMAKE_CURRENT_LIST_DIR}/eos.c
     ${CMAKE_CURRENT_LIST_DIR}/eos.h
@@ -16,6 +16,8 @@ add_library(EOS
     ${CMAKE_CURRENT_LIST_DIR}/scheduler.c
     ${CMAKE_CURRENT_LIST_DIR}/semaphore.h
     ${CMAKE_CURRENT_LIST_DIR}/semaphore.c
+    ${CMAKE_CURRENT_LIST_DIR}/queue.h
+    ${CMAKE_CURRENT_LIST_DIR}/queue.c
 )
 
 
