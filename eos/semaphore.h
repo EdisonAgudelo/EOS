@@ -28,43 +28,23 @@ SOFTWARE.
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "eos.h"
 #include "list.h"
 #include "scheduler.h"
 
 //return true if take was success
 #define EOS_SEMAPHORE_TAKE(semaphore, ticks_to_wait)                                            \
-    ({                                                                                          \
-        bool success;                                                                           \
-        eos_running_task->ticks_to_delay = (ticks_to_wait);                                     \
-        portEOS_DISABLE_ISR();                                                                  \
-        if(semaphore->free_keys){                                                               \
-            semaphore->free_keys--;                                                             \
-            EOS_SET_LIST_INDEX(semaphore->waiting_tasks, eos_running_task)                      \
-            portEOS_ENABLE_ISR();                                                               \
-            success = true;                                                                     \
-            goto CONCAT(EOS_SEMAPHORE_END_LABEL, __LINE__);                                     \
-        }                                                                                       \
-        if((ticks_to_wait) == 0){                                                               \
+        ({                                                                                      \
+            bool success = true;                                                                \
+            eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
             CONCAT(EOS_SEMAPHORE_WAIT_LABEL, __LINE__):                                         \
-            portEOS_DISABLE_ISR();                                                              \
-            if(eos_running_task->sync.parent_list != NULL &&                                    \
-               EOS_ITEM_BELONG_TO_LIST(semaphore->waiting_tasks, eos_running_task, sync)){      \
-                EOS_REMOVE_FROM_LIST(semaphore->waiting_tasks, eos_running_task, sync);         \
-            }                                                                                   \
-            success = eos_running_task->ticks_to_delay != 0;                                    \
-            portEOS_ENABLE_ISR();                                                               \
-            goto CONCAT(EOS_SEMAPHORE_END_LABEL, __LINE__);                                     \
-        }                                                                                       \
-        EOSSemaphoreAddBlockedTask(semaphore, eos_running_task);                                \
-        *eos_jumper = &&CONCAT(EOS_SEMAPHORE_WAIT_LABEL, __LINE__);                             \
-        eos_running_task->block_source = kEOSBlockSrcSemaphore;                                 \
-        *eos_task_state = ((ticks_to_wait) == EOS_INFINITE_TICKS) ?                             \
-                                kEOSTaskSuspended : kEOSTaskBlocked;                            \
-        portEOS_ENABLE_ISR();                                                                   \
-        goto EOS_END_LABEL;                                                                     \
-        CONCAT(EOS_SEMAPHORE_END_LABEL, __LINE__):                                              \
-        success;                                                                                \
-    })
+            goto *EOSInternalSemaphoreTake(semaphore, eos_jumper, eos_task_state, &success,     \
+                                        &&CONCAT(EOS_SEMAPHORE_WAIT_LABEL, __LINE__),           \
+                                        &&CONCAT(EOS_SEMAPHORE_END_LABEL, __LINE__),            \
+                                        &&EOS_END_LABEL);                                       \
+            CONCAT(EOS_SEMAPHORE_END_LABEL, __LINE__):                                          \
+            success;                                                                            \
+        })
 
 #define EOS_SEMAPHORE_GIVE(semaphore)       \
         if(EOSSemaphoreGiveISR(semaphore))  \
@@ -89,18 +69,21 @@ typedef struct {
 
 typedef EOSStaticSemaphoreT * EOSSemaphoreT;
 
-//shouldn't be called from user directly
-void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task);
-//can be called from ISR context
-bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore);
-
 
 #define EOSCreateStaticBinarySemaphore(semaphore_buffer) EOSCreateStaticSemphrGen(semaphore_buffer, 0, 1, kEOSSemphrBinary)
 #define EOSCreateStaticCounterSemaphore(semaphore_buffer, init, max) EOSCreateStaticSemphrGen(semaphore_buffer, init, max, kEOSSemphrConter)
 #define EOSCreateStaticMutexSemaphore(semaphore_buffer) EOSCreateStaticSemphrGen(semaphore_buffer, 1, 1, kEOSSemphrMutex)
 
-
 EOSSemaphoreT EOSCreateStaticSemphrGen(EOSStaticSemaphoreT *semaphore_buffer, uint32_t init_count, uint32_t max_count, EOSSemaphoreTypeT type);
+
+//can be called from ISR context
+bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore);
+
+
+//shouldn't be called by user directly
+void *EOSInternalSemaphoreTake(EOSSemaphoreT semaphore, EOSJumperT *jumper, EOSTaskStateT *state,
+                        bool *success, void *wait, void *semaphore_end, void *task_end);
+
 
 #endif
 

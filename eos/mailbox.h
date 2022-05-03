@@ -36,30 +36,14 @@ SOFTWARE.
 //return true if Mail was received
 #define EOS_MAIL_WAIT(message, ticks_to_wait)                                               \
         ({                                                                                  \
-            bool success;                                                                   \
+            bool success = true;                                                            \
             eos_running_task->ticks_to_delay = (ticks_to_wait);                             \
             CONCAT(EOS_MAIL_WAIT_LABEL, __LINE__):                                          \
-            portEOS_DISABLE_ISR();                                                          \
-            if(eos_running_task->mail_count != 0){                                          \
-                eos_running_task->mail_count--;                                             \
-                *message = eos_running_task->mail_value;                                    \
-                portEOS_ENABLE_ISR()                                                        \
-                success = true;                                                             \
-                goto CONCAT(EOS_MAIL_END_LABEL, __LINE__);                                  \
-            }                                                                               \
-            portEOS_ENABLE_ISR()                                                            \
-            if((eos_running_task->ticks_to_delay) == 0)                                     \
-            {                                                                               \
-                success = false;                                                            \
-                goto CONCAT(EOS_MAIL_END_LABEL, __LINE__);                                  \
-            }                                                                               \
-                                                                                            \
-            *eos_jumper = &&CONCAT(EOS_MAIL_WAIT_LABEL, __LINE__);                          \
-            eos_running_task->block_source = kEOSBlockSrcMail;                              \
-            *eos_task_state = ((ticks_to_wait) == EOS_INFINITE_TICKS) ?                     \
-                                kEOSTaskSuspended : kEOSTaskBlocked;                        \
-            goto EOS_END_LABEL;                                                             \
-            CONCAT(EOS_MAIL_END_LABEL, __LINE__):                                          \
+            goto *EOSInternalMailWait(message, eos_jumper, eos_task_state, &success,        \
+                                    &&CONCAT(EOS_MAIL_WAIT_LABEL, __LINE__),                \
+                                    &&CONCAT(EOS_MAIL_END_LABEL, __LINE__),                 \
+                                    &&EOS_END_LABEL);                                       \
+            CONCAT(EOS_MAIL_END_LABEL, __LINE__):                                           \
             success;                                                                        \
         })
 
@@ -76,9 +60,13 @@ SOFTWARE.
             portEOS_ENABLE_ISR();               \
     } while(0)
 
+//shouldn't be called by user directly
+void *EOSInternalMailWait(uint32_t *message, EOSJumperT *jumper, EOSTaskStateT *state, bool *success,
+                            void *wait, void *mail_end, void *task_end);
+
+
 //can be called outside EOS scope
 bool EOSMailSendISR(EOSTaskT task, uint32_t mail);
-
 
 #endif
 
