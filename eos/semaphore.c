@@ -27,7 +27,7 @@ SOFTWARE.
 extern EOSListT ready_list[];
 
 //can't be called from ISR
-void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
+static void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
 {
     EOSTaskT index_task;
 
@@ -79,6 +79,47 @@ void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
 }
 
 
+//shouldn't be called by user directly
+void *EOSInternalSemaphoreTake(EOSSemaphoreT semaphore, EOSJumperT *jumper, EOSTaskStateT *state, bool *success,
+                            void *wait, void *semaphore_end, void *task_end)
+{                                
+    portEOS_DISABLE_ISR(); 
+    //if asking task is alereading holding semaphore, then just return success                                                                
+    if(semaphore->free_keys || 
+        EOS_GET_INDEX_FROM_LIST(semaphore->waiting_tasks) == eos_running_task){                                                               
+        
+        if(semaphore->free_keys)
+            semaphore->free_keys--;                                                             
+        
+        //the list remove is auto done by EOSSemaphoreGiveISR
+
+        EOS_SET_LIST_INDEX(semaphore->waiting_tasks, eos_running_task);                      
+        portEOS_ENABLE_ISR();
+        return semaphore_end;                                     
+    }                                                                                       
+    if(eos_running_task->ticks_to_delay == 0){   
+        //this list remove is auto done by scheduler if any              
+        *success = false;                              
+        portEOS_ENABLE_ISR();                                                               
+        return semaphore_end;                                     
+    }                                                                                       
+    EOSSemaphoreAddBlockedTask(semaphore, eos_running_task);                                
+    *jumper =  wait;
+    eos_running_task->block_source = kEOSBlockSrcSemaphore;                                 
+    *state = ((eos_running_task->ticks_to_delay) == EOS_INFINITE_TICKS) ?                                                             
+                kEOSTaskSuspended : kEOSTaskBlocked;                            
+    portEOS_ENABLE_ISR();    
+
+    return task_end;                                                                                                                                                    
+}
+
+
+
+
+
+
+
+
 bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore)
 {
     bool high_priority = false;
@@ -119,7 +160,7 @@ bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore)
                 holding_task->block_source = kEOSBlockSrcNone;
                 
                 //check if scheduler alredy deque task from ready lists
-                if(!EOS_ITEM_BELONG_TO_LIST(ready_list[holding_task->priority], holding_task, scheduler) && holding_task->scheduler.parent_list != NULL)
+                if(holding_task->scheduler.parent_list != NULL && !EOS_ITEM_BELONG_TO_LIST(ready_list[holding_task->priority], holding_task, scheduler))
                 {
                     //reomove from either, block or suspended
                     EOS_REMOVE_FROM_LIST(*((EOSListT *)holding_task->scheduler.parent_list), holding_task, scheduler);

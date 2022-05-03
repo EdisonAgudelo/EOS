@@ -78,20 +78,15 @@ typedef EOSStaticTaskT *EOSTaskT;
 #define EOS_INFINITE_TICKS 0xffffffff
 
 //block or dalay a task execution for n ticks.
-#define EOS_DELAY(ticks)                                                \
-    do {                                                                \
-        *eos_jumper = &&CONCAT(EOS_DELAY_LABEL, __LINE__);              \
-        eos_running_task->block_source = kEOSBlockSrcDelay;             \
-        if((ticks) == EOS_INFINITE_TICKS)                               \
-        {                                                               \
-            *eos_task_state = kEOSTaskSuspended;                        \
-        } else                                                          \
-        {                                                               \
-            *eos_task_state = kEOSTaskBlocked;                          \
-            eos_running_task->ticks_to_delay = ticks;                   \
-        }                                                               \
-        goto EOS_END_LABEL;                                             \
-        CONCAT(EOS_DELAY_LABEL, __LINE__):;                             \
+#define EOS_DELAY(ticks)                                                                \
+    do {                                                                                \
+        *eos_jumper = &&CONCAT(EOS_DELAY_LABEL, __LINE__);                              \
+        eos_running_task->block_source = kEOSBlockSrcDelay;                             \
+        eos_running_task->ticks_to_delay = ticks;                                       \
+        *eos_task_state = ((eos_running_task->ticks_to_delay) == EOS_INFINITE_TICKS) ?  \
+                kEOSTaskSuspended : kEOSTaskBlocked;                                    \
+        goto EOS_END_LABEL;                                                             \
+        CONCAT(EOS_DELAY_LABEL, __LINE__):;                                             \
     }while(0)
 
 //actual tick value

@@ -30,7 +30,7 @@ extern EOSListT ready_list[];
 
 //return true if high priotiy
 //isr disable should be called firts
-bool EOSQueueRetrieve(EOSQueueT queue, void *item, bool *success)
+static bool EOSQueueRetrieve(EOSQueueT queue, void *item, bool *success)
 {
     EOSTaskT waiting_sender;
 
@@ -85,10 +85,51 @@ bool EOSQueueRetrieve(EOSQueueT queue, void *item, bool *success)
     return false;
 }
 
-void EOSQueueAddBlockedSender(EOSQueueT queue, EOSTaskT sender)
+
+void *EOSInternalQueueReceive(EOSQueueT queue, void *item, EOSJumperT *jumper, EOSTaskStateT *state,
+                        bool *success, void *wait, void *yield, void *queue_end, void *task_end)
+{      
+    bool should_yield;
+
+    portEOS_DISABLE_ISR();                                                                                  
+    if(EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == NULL  ||                                            
+        EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task){                                
+        should_yield = EOSQueueRetrieve(queue, item, success);                                                    
+        if(*success){                                                                                       
+            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  
+            portEOS_ENABLE_ISR();                                                                           
+            if(should_yield){                                                                                      
+                *state = kEOSTaskYield;
+                *jumper = yield;
+                return task_end;                                                              
+            }    
+            return queue_end;
+        }                                                                                                     
+    }                                                                                                       
+    if(eos_running_task->ticks_to_delay == 0 ||  EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) != NULL)     
+    {
+        if(EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task)                               
+            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  
+        portEOS_ENABLE_ISR();                                                                               
+        *success = false;                                                                                    
+        return queue_end;                                                         
+    }                                                                                                       
+    EOS_SET_LIST_INDEX(queue->waiting_tasks, eos_running_task);                                             
+    *jumper = wait;                                                 
+    eos_running_task->block_source = kEOSBlockSrcQueue;                                                     
+    *state = ((eos_running_task->ticks_to_delay) == EOS_INFINITE_TICKS) ?                                             
+                            kEOSTaskSuspended : kEOSTaskBlocked;                                            
+    portEOS_ENABLE_ISR();                                                                                   
+    return task_end;                                                                                          
+}
+
+
+
+
+static void EOSQueueAddBlockedSender(EOSQueueT queue, EOSTaskT sender)
 {
     EOSTaskT index_task;
-    portEOS_DISABLE_ISR(); 
+    
 
     for(index_task = EOS_GET_HEAD_FROM_LIST(queue->waiting_tasks);
         index_task != NULL; index_task = EOS_GET_NEXT_FROM_ITEM(index_task, sync)){
@@ -105,7 +146,6 @@ void EOSQueueAddBlockedSender(EOSQueueT queue, EOSTaskT sender)
         EOS_INSERT_PREV_TO_ITEM_IN_LIST(queue->waiting_tasks, sender, index_task, sync);
     }
 
-    portEOS_ENABLE_ISR(); 
 }
 
 bool EOSQueueSendISR(EOSQueueT queue, void *item, EOSQueueFlagsT flags, bool *success)
@@ -179,6 +219,35 @@ bool EOSQueueSendISR(EOSQueueT queue, void *item, EOSQueueFlagsT flags, bool *su
     return high_priority;
 }
 
+
+
+void *EOSInternalQueueSend(EOSQueueT queue, void *item, EOSQueueFlagsT flags, EOSJumperT *jumper, EOSTaskStateT *state,
+                        bool *success, void *wait, void *yield, void *queue_end, void *task_end)
+{
+    bool should_yield;                                                                                                                                 
+                                                           
+    should_yield = EOSQueueSendISR(queue, item, flags, success);                                                  
+    if(*success){                                                                                            
+        if(should_yield){                                                                                          
+            *state = kEOSTaskYield;
+            *jumper = yield;
+            return task_end;                                                                                     
+        }
+        return queue_end;                                                   
+    }                                                                                                      
+    if(eos_running_task->ticks_to_delay == 0){                                                              
+        *success = false;                                                                                   
+        return queue_end;                                                         
+    }                 
+    portEOS_DISABLE_ISR();                                                                                   
+    EOSQueueAddBlockedSender(queue, eos_running_task);                                                      
+    *jumper = wait;                                                 
+    eos_running_task->block_source = kEOSBlockSrcQueue;                                                     
+    *state = ((eos_running_task->ticks_to_delay) == EOS_INFINITE_TICKS) ?                                             
+                            kEOSTaskSuspended : kEOSTaskBlocked;                                              
+    portEOS_ENABLE_ISR();   
+    return task_end;
+}
 
 EOSQueueT EOSCreateStaticQueue(uint8_t *buffer, size_t item_size, uint32_t max_items, EOSStaticQueueT *queue_buffer)
 {

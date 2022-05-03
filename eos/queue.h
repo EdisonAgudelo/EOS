@@ -46,86 +46,53 @@ typedef struct
 typedef EOSStaticQueueT * EOSQueueT;
 
 //return true if and element was retrieved
-#define EOS_QUEUE_RECEIVE(queue, item, ticks_to_wait)                                                           \
-    ({                                                                                                          \
-        bool success = false, yield;                                                                            \
-        eos_running_task->ticks_to_delay = (ticks_to_wait);                                                     \
-        CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                                                 \
-        portEOS_DISABLE_ISR();                                                                                  \
-        if(EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == NULL  ||                                            \
-            EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task){                                 \
-            yield = EOSQueueRetrieve(queue, item, &success);                                                    \
-            if(success){                                                                                        \
-                EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  \
-                portEOS_ENABLE_ISR();                                                                           \
-                if(yield){                                                                                      \
-                    EOS_YIELD();                                                                                \
-                }                                                                                               \
-                success = true;                                                                                 \
-                goto CONCAT(EOS_QUEUE_END_LABEL, __LINE__);                                                     \
-            }                                                                                                   \
-                                                                                                                \
-        }                                                                                                       \
-        if(eos_running_task->ticks_to_delay == 0 ||  EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) != NULL)     \
-        {                                                                                                       \
-            if(EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task)                               \
-                EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  \
-            portEOS_ENABLE_ISR();                                                                               \
-            success = false;                                                                                    \
-            goto CONCAT(EOS_QUEUE_END_LABEL, __LINE__);                                                         \
-        }                                                                                                       \
-        EOS_SET_LIST_INDEX(queue->waiting_tasks, eos_running_task);                                             \
-        *eos_jumper = &&CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__);                                                 \
-        eos_running_task->block_source = kEOSBlockSrcQueue;                                                     \
-        *eos_task_state = ((ticks_to_wait) == EOS_INFINITE_TICKS) ?                                             \
-                                kEOSTaskSuspended : kEOSTaskBlocked;                                            \
-        portEOS_ENABLE_ISR();                                                                                   \
-        goto EOS_END_LABEL;                                                                                     \
-        CONCAT(EOS_QUEUE_END_LABEL, __LINE__):                                                                  \
-        success;                                                                                                \
-    })                                                                                                          
+#define EOS_QUEUE_RECEIVE(queue, item, ticks_to_wait)                                           \
+        ({                                                                                      \
+            bool success = true;                                                                \
+            eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
+            CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                             \
+            goto *EOSInternalQueueReceive(queue, item, eos_jumper, eos_task_state, &success,    \
+                                            &&CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__),           \
+                                            &&CONCAT(EOS_QUEUE_YIELD_LABEL, __LINE__),          \
+                                            &&CONCAT(EOS_QUEUE_END_LABEL, __LINE__),            \
+                                            &&EOS_END_LABEL);                                   \
+            CONCAT(EOS_QUEUE_YIELD_LABEL, __LINE__):                                            \
+            success = true;                                                                     \
+            CONCAT(EOS_QUEUE_END_LABEL, __LINE__):                                              \
+            success;                                                                            \
+        })
                                     
 
-#define EOS_QUEUE_SEND(queue, item, flags, ticks_to_wait)                                                              \
-    ({                                                                                                          \
-        bool success = false, yield;                                                                            \
-        eos_running_task->ticks_to_delay = (ticks_to_wait);                                                     \
-        CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                                                 \
-        yield = EOSQueueSendISR(queue, item, flags, &success);                                                        \
-        if(success){                                                                                            \
-            if(yield){                                                                                          \
-                EOS_YIELD();                                                                                    \
-            }                                                                                                   \
-            success = true;                                                                                     \
-            goto CONCAT(EOS_QUEUE_END_LABEL, __LINE__);                                                         \
-        }                                                                                                       \
-        if(eos_running_task->ticks_to_delay == 0){                                                              \
-            if(eos_running_task->sync.parent_list != NULL &&                                                    \
-               EOS_ITEM_BELONG_TO_LIST(queue->waiting_tasks, eos_running_task, sync)){                          \
-                EOS_REMOVE_FROM_LIST(queue->waiting_tasks, eos_running_task, sync);                             \
-            }                                                                                                   \
-            goto CONCAT(EOS_QUEUE_END_LABEL, __LINE__);                                                         \
-        }                                                                                                       \
-        EOSQueueAddBlockedSender(queue, eos_running_task);                                                      \
-        *eos_jumper = &&CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__);                                                 \
-        eos_running_task->block_source = kEOSBlockSrcQueue;                                                     \
-        *eos_task_state = ((ticks_to_wait) == EOS_INFINITE_TICKS) ?                                             \
-                                kEOSTaskSuspended : kEOSTaskBlocked;                                            \
-        goto EOS_END_LABEL;                                                                                     \
-        CONCAT(EOS_QUEUE_END_LABEL, __LINE__):                                                                  \
-        success;                                                                                                \
-    })     
-
-//should not be called directly by user
-bool EOSQueueRetrieve(EOSQueueT queue, void *item, bool *success);
-void EOSQueueAddBlockedSender(EOSQueueT queue, EOSTaskT sender);
-
+#define EOS_QUEUE_SEND(queue, item, flags, ticks_to_wait)                                       \
+        ({                                                                                      \
+            bool success = true;                                                                \
+            eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
+            CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                             \
+            goto *EOSInternalQueueSend(queue, item, flags, eos_jumper, eos_task_state, &success,\
+                                            &&CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__),           \
+                                            &&CONCAT(EOS_QUEUE_YIELD_LABEL, __LINE__),          \
+                                            &&CONCAT(EOS_QUEUE_END_LABEL, __LINE__),            \
+                                            &&EOS_END_LABEL);                                   \
+            CONCAT(EOS_QUEUE_YIELD_LABEL, __LINE__):                                            \
+            success = true;                                                                     \
+            CONCAT(EOS_QUEUE_END_LABEL, __LINE__):                                              \
+            success;                                                                            \
+        })   
 
 typedef enum{
     kEOSQueueWriteBack = 0,
     kEOSQueueWriteFront =  0b1,
     kEOSQueueOverWrite = 0b10
-}EOSQueueFlagsT;
+}EOSQueueFlagsT; 
+
+//should not be called directly by user
+void *EOSInternalQueueReceive(EOSQueueT queue, void *item, EOSJumperT *jumper, EOSTaskStateT *state,
+                        bool *success, void *wait, void *yield, void *queue_end, void *task_end);
+
+void *EOSInternalQueueSend(EOSQueueT queue, void *item, EOSQueueFlagsT flags, EOSJumperT *jumper, EOSTaskStateT *state,
+                        bool *success, void *wait, void *yield, void *queue_end, void *task_end);
+
+
 
 //return true if task was woken. 
 bool EOSQueueSendISR(EOSQueueT queue, void *item, EOSQueueFlagsT flags, bool *success);
