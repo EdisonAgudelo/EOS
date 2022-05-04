@@ -58,7 +58,6 @@ typedef struct EOSStaticTask
     bool tick_over_flow; //signals if it have to wait eos_tick overrun
     uint32_t ticks_to_delay; //how many ticks is gonna wait to unblock
     
-    
     uint32_t mail_value;
     uint32_t mail_count;  //how many signals received
     EOSBlockSourceT block_source; //if a task state is different from yield, but there is no source... block is discarted
@@ -69,10 +68,28 @@ typedef struct EOSStaticTask
         struct EOSStaticTask *next;
         void *parent_list; //owner list
     } scheduler, sync; //scheduler basically for time events. sync for resorces as mutex
+
+    //stats generation
+    uint32_t execution_time; //this shouldn't be ticks source... it must a faster timer
+
 }EOSStaticTaskT;
 
 //task handler
 typedef EOSStaticTaskT *EOSTaskT;
+
+
+typedef struct 
+{
+    char *name;
+    uint32_t execution_time;
+    EOSTaskStateT state;
+    uint32_t stack_size;
+    uint32_t free_ever_stack;
+    EOSBlockSourceT block_source;
+
+}EOSTaskInfoT;
+
+
 
 // If task is unblocked for a undefined amount of ticks
 #define EOS_INFINITE_TICKS 0xffffffff
@@ -106,6 +123,12 @@ void EOSScheduler(void);
 
 //hook called when task is executing 
 void EOSIdleHook(void);
+
+//get just a particular task info
+bool EOSGetTaskInfo(EOSTaskT ref_task, EOSTaskInfoT *info);
+//get all task information with limit
+bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count);
+
 
 
 /*

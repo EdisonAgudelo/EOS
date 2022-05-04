@@ -136,7 +136,7 @@ static EOSTaskT EOSGetNextTaskToRun(void)
         }
     } while(priority--);
     
-     portEOS_ENABLE_ISR();
+    portEOS_ENABLE_ISR();
     
     //never should reach here as we always have idle task as the last task to execute
     EOS_ASSERT(0);
@@ -148,6 +148,7 @@ static EOSTaskT EOSGetNextTaskToRun(void)
 void EOSScheduler(void)
 {
     EOSTaskT index_task = NULL;
+    uint32_t tmr_stats_init;
   
     
     EOSStaticStack idle_stack[EOS_WATER_MARK_STACK_ROOM + EOS_MIN_STACK];
@@ -155,15 +156,21 @@ void EOSScheduler(void)
     
     EOSCreateStaticTask(EOSIdleTask, NULL, 0, "Idle",sizeof(idle_stack), idle_stack, &idle_task_buffer);
 
+    portEOS_TICK_INIT();
+    portEOS_TMR_STATS_INIT();
+    
     while(eos_tick < 40)
     {
         eos_running_task = EOSGetNextTaskToRun();
         
+        tmr_stats_init = portEOS_TMR_STATS_GET();
+
         eos_running_task->task(eos_running_task->stack, eos_running_task->args);
         EOS_ASSERT(!EOSCheckOverFlow(eos_running_task->stack, eos_running_task->stack_size));
         
-        
         portEOS_DISABLE_ISR();
+
+        eos_running_task->execution_time += EOS_TIME_DIFFERENCE(tmr_stats_init, portEOS_TMR_STATS_GET());
         
         //before any removal... save the next task to execute
         
@@ -221,10 +228,8 @@ void EOSScheduler(void)
                 EOS_ASSERT(false);
         }
         portEOS_ENABLE_ISR();
-        
-        //virtual tick for test purposes
-        EOSTickIncrement();
     }
+    EOS_ASSERT(0);
 }
 
 
@@ -252,6 +257,8 @@ EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority,
     EOS_ADD_TO_LIST(ready_list[task_buffer->priority], task_buffer, scheduler);
     
     task_buffer->sync.parent_list = NULL;
+
+    task_buffer->execution_time = 0;
     
     portEOS_ENABLE_ISR();
     
@@ -260,3 +267,76 @@ EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority,
 
 
 
+bool EOSGetTaskInfo(EOSTaskT ref_task, EOSTaskInfoT *info)
+{
+    uint32_t water_mark;
+
+    if(ref_task == NULL || info == NULL)
+        return false;
+    
+
+    info->block_source = ref_task->block_source;
+    info->execution_time = ref_task->execution_time;
+    info->name = &ref_task->name[0];
+    info->stack_size = ref_task->stack_size;
+
+    water_mark = info->stack_size;
+
+    while (water_mark)
+    {
+        if(ref_task->stack[--water_mark] != EOS_WATER_MARK_SYMBOL){
+            water_mark++;
+            break;
+        }
+    }
+    
+    info->free_ever_stack =  info->stack_size - (water_mark);
+    return true;
+}
+//get all task information with limit
+bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count)
+{
+    uint16_t task_recovered;
+    uint8_t priority;
+    EOSTaskT ref_task;
+    portEOS_DISABLE_ISR();
+
+    task_recovered = 0;
+
+    ref_task = EOS_GET_HEAD_FROM_LIST(blocked_list);
+
+    while(ref_task != NULL && task_recovered < *count){
+        EOSGetTaskInfo(ref_task, info++);
+        task_recovered++;
+        ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
+    }
+
+    if(ref_task == NULL)
+        ref_task = EOS_GET_HEAD_FROM_LIST(suspended_list);
+
+    while(ref_task != NULL && task_recovered < *count){
+        EOSGetTaskInfo(ref_task, info++);
+        task_recovered++;
+        ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
+    }
+
+    priority = EOS_MAX_TASK_PRIORITY;
+    do
+    {  
+        if(ref_task == NULL)
+            ref_task = EOS_GET_HEAD_FROM_LIST(ready_list[priority]);
+
+        while(ref_task != NULL && task_recovered < *count){
+            EOSGetTaskInfo(ref_task, info++);
+            task_recovered++;
+            ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
+        } 
+        
+    } while ( priority-- != 0 && task_recovered < *count);
+    
+    portEOS_ENABLE_ISR();
+
+    *count = task_recovered;
+
+    return task_recovered != 0 && ref_task == NULL;
+}

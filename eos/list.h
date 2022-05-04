@@ -132,11 +132,16 @@ SOFTWARE.
         }                                                                           \
     }while(0)
 
+
+#define EOS_TIME_DIFFERENCE(ref, act)           \
+    ((ref) <= (act) ?                           \
+    ((act) - (ref)) :                           \
+    ((0xffffffff - ((ref) - (act))) + 1))
+
+
 //calculate how many ticks is left even if ticks overflow //useful for long term applications
 #define EOS_DELAY_REMAIN(unblock_tick)                      \
-    (eos_tick <= (unblock_tick) ?                           \
-    ((unblock_tick) - eos_tick) :                           \
-    ((0xffffffff - (eos_tick - (unblock_tick))) + 1))
+    EOS_TIME_DIFFERENCE(eos_tick, unblock_tick)
 
 //list body
 typedef struct {
