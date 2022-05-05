@@ -96,7 +96,7 @@ void *EOSInternalQueueReceive(EOSQueueT queue, void *item, EOSJumperT *jumper, E
         EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task){                                
         should_yield = EOSQueueRetrieve(queue, item, success);                                                    
         if(*success){                                                                                       
-            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  
+            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL);                                              
             portEOS_ENABLE_ISR();                                                                           
             if(should_yield){                                                                                      
                 *state = kEOSTaskYield;
@@ -109,7 +109,7 @@ void *EOSInternalQueueReceive(EOSQueueT queue, void *item, EOSJumperT *jumper, E
     if(eos_running_task->ticks_to_delay == 0 ||  EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) != NULL)     
     {
         if(EOS_GET_INDEX_FROM_LIST(queue->waiting_tasks) == eos_running_task)                               
-            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL)                                                  
+            EOS_SET_LIST_INDEX(queue->waiting_tasks, NULL);                                                 
         portEOS_ENABLE_ISR();                                                                               
         *success = false;                                                                                    
         return queue_end;                                                         

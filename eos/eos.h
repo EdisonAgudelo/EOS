@@ -52,12 +52,14 @@ SOFTWARE.
     EOS_BEGIN_LABEL:
   
 //if an error happen... an nest function or a task should exit inmediately... call this routine  
-#define EOS_EXIT()          \
-    goto EOS_EXIT_LABEL
+#define EOS_EXIT()                              \
+        do {                                    \
+            *eos_task_state = kEOSTaskEnded;    \
+            goto EOS_END_LABEL;                 \
+        }while(0)
 
 //should be placed at the bottom of the nest function or task before return or push copy operations
 #define EOS_END()                       \
-    EOS_EXIT_LABEL:                     \
     *eos_task_state = kEOSTaskEnded;    \
     EOS_END_LABEL:              
 
