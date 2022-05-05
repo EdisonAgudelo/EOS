@@ -40,6 +40,22 @@ SOFTWARE.
 #define portEOS_ENABLE_ISR()
 #endif
 
+
+#ifndef portEOS_TICK_INIT
+#define portEOS_TICK_INIT()
+#endif
+
+
+#ifndef portEOS_TMR_STATS_INIT
+#define portEOS_TMR_STATS_INIT()
+#endif
+
+#ifndef portEOS_TMR_STATS_GET
+#define portEOS_TMR_STATS_GET() 0
+#endif
+
+
+
 //how many individual priorities is gonna exist. Task may share same priority number
 #ifndef EOS_MAX_TASK_PRIORITY
 #define EOS_MAX_TASK_PRIORITY 2
@@ -57,8 +73,11 @@ SOFTWARE.
 #ifndef EOS_WATER_MARK_SYMBOL
 #define EOS_WATER_MARK_SYMBOL 0x5a
 #endif
+
 #ifndef EOS_WATER_MARK_STACK_ROOM
 #define EOS_WATER_MARK_STACK_ROOM 8
 #endif
+
+
 
 #endif
