@@ -36,7 +36,7 @@ SOFTWARE.
 //return true if Mail was received
 #define EOS_MAIL_WAIT(message, ticks_to_wait)                                               \
         ({                                                                                  \
-            bool success = true;                                                            \
+            bool success;                                                                   \
             eos_running_task->ticks_to_delay = (ticks_to_wait);                             \
             CONCAT(EOS_MAIL_WAIT_LABEL, __LINE__):                                          \
             goto *EOSInternalMailWait(message, eos_jumper, eos_task_state, &success,        \
@@ -59,6 +59,9 @@ SOFTWARE.
             eos_running_task->mail_count = 0;   \
             portEOS_ENABLE_ISR();               \
     } while(0)
+
+#define EOS_MAIL_PENDING()          \
+        eos_running_task->mail_count
 
 //shouldn't be called by user directly
 void *EOSInternalMailWait(uint32_t *message, EOSJumperT *jumper, EOSTaskStateT *state, bool *success,
