@@ -68,8 +68,10 @@ void *EOSInternalMailWait(uint32_t *message, EOSJumperT *jumper, EOSTaskStateT *
     make a success return (even with the expired time).
     */                                      
     if(eos_running_task->mail_count != 0){                       
-        eos_running_task->mail_count--;                          
-        *message = eos_running_task->mail_value;                 
+        eos_running_task->mail_count--;  
+        if(message != NULL)
+            *message = eos_running_task->mail_value; 
+        *success = true;
         portEOS_ENABLE_ISR();                                  
         return mail_end;                                  
     }
