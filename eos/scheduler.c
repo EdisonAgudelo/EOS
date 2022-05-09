@@ -149,7 +149,7 @@ void EOSScheduler(void)
 {
     EOSTaskT index_task = NULL;
     uint32_t tmr_stats_init;
-  
+    uint32_t tmr_stats_end;
     
     EOSStaticStack idle_stack[EOS_WATER_MARK_STACK_ROOM + EOS_MIN_STACK];
     EOSStaticTaskT idle_task_buffer;
@@ -159,18 +159,18 @@ void EOSScheduler(void)
     portEOS_TICK_INIT();
     portEOS_TMR_STATS_INIT();
     
-    while(eos_tick < 40)
+    while(1)
     {
         eos_running_task = EOSGetNextTaskToRun();
         
-        tmr_stats_init = portEOS_TMR_STATS_GET();
+        portEOS_TMR_STATS_GET(&tmr_stats_init);
 
         eos_running_task->task(eos_running_task->stack, eos_running_task->args);
         EOS_ASSERT(!EOSCheckOverFlow(eos_running_task->stack, eos_running_task->stack_size));
         
         portEOS_DISABLE_ISR();
-
-        eos_running_task->execution_time += EOS_TIME_DIFFERENCE(tmr_stats_init, portEOS_TMR_STATS_GET());
+        portEOS_TMR_STATS_GET(&tmr_stats_end); 
+        eos_running_task->execution_time += EOS_TIME_DIFFERENCE(tmr_stats_init, tmr_stats_end);
         
         //before any removal... save the next task to execute
         
@@ -245,6 +245,7 @@ EOSTaskT EOSCreateStaticTask(EOSTaskFunction task, void *args, uint8_t priority,
     
     task_buffer->unblock_tick = 0;
     task_buffer->priority = priority <= EOS_MAX_TASK_PRIORITY ? priority : EOS_MAX_TASK_PRIORITY;
+    task_buffer->original_priority = task_buffer->priority;
     
     strncpy(task_buffer->name, name, EOS_TASK_MAX_NAME_LEN);
     task_buffer->name[EOS_TASK_MAX_NAME_LEN - 1] = '\0'; 
@@ -274,7 +275,6 @@ bool EOSGetTaskInfo(EOSTaskT ref_task, EOSTaskInfoT *info)
     if(ref_task == NULL || info == NULL)
         return false;
     
-
     info->block_source = ref_task->block_source;
     info->execution_time = ref_task->execution_time;
     info->name = &ref_task->name[0];
@@ -294,7 +294,7 @@ bool EOSGetTaskInfo(EOSTaskT ref_task, EOSTaskInfoT *info)
     return true;
 }
 //get all task information with limit
-bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count)
+bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count, uint32_t *total_run_time)
 {
     uint16_t task_recovered;
     uint8_t priority;
@@ -306,6 +306,7 @@ bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count)
     ref_task = EOS_GET_HEAD_FROM_LIST(blocked_list);
 
     while(ref_task != NULL && task_recovered < *count){
+        info->state = kEOSTaskBlocked;
         EOSGetTaskInfo(ref_task, info++);
         task_recovered++;
         ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
@@ -315,6 +316,7 @@ bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count)
         ref_task = EOS_GET_HEAD_FROM_LIST(suspended_list);
 
     while(ref_task != NULL && task_recovered < *count){
+        info->state = kEOSTaskSuspended;
         EOSGetTaskInfo(ref_task, info++);
         task_recovered++;
         ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
@@ -327,16 +329,137 @@ bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count)
             ref_task = EOS_GET_HEAD_FROM_LIST(ready_list[priority]);
 
         while(ref_task != NULL && task_recovered < *count){
+            if(ref_task == eos_running_task)
+                info->state = kEOSTaskRunning;
+            else
+                info->state = kEOSTaskYield;
+            
             EOSGetTaskInfo(ref_task, info++);
             task_recovered++;
             ref_task = EOS_GET_NEXT_FROM_ITEM(ref_task, scheduler);
-        } 
+        }
         
     } while ( priority-- != 0 && task_recovered < *count);
     
     portEOS_ENABLE_ISR();
 
     *count = task_recovered;
+    portEOS_TMR_STATS_GET((total_run_time));
 
     return task_recovered != 0 && ref_task == NULL;
+}
+
+void EOSSuspendTaskISR(EOSTaskT task)
+{
+//    if(task == NULL)
+//    {
+//        task = eos_running_task;
+//    }
+    EOS_ASSERT(task != NULL);
+
+    
+    portEOS_DISABLE_ISR();
+    
+    if(task != eos_running_task)
+    {
+        if(task->scheduler.parent_list != NULL && !EOS_ITEM_BELONG_TO_LIST(suspended_list, task, scheduler))
+        {
+            //it is from ready list and was "pre-scheduled"
+            if(EOS_GET_INDEX_FROM_LIST(ready_list[task->priority]) == task)
+            {
+                EOS_SET_LIST_INDEX(ready_list[task->priority], EOS_GET_NEXT_FROM_ITEM(task, scheduler));
+            }
+            //reomove from either, block or ready list
+            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->scheduler.parent_list), task, scheduler);
+            EOS_ADD_TO_LIST(suspended_list, task, scheduler);
+        }
+        //if its in waiting list of any object
+        if(task->sync.parent_list != NULL)
+        {
+            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->sync.parent_list), task, sync);
+        }
+        task->block_source = kEOSBlockSrcSuspendCommand;
+    }
+    
+    portEOS_ENABLE_ISR();
+}
+
+void *EOSInternalSuspendTask(EOSTaskT task, EOSJumperT *eos_jumper, EOSTaskStateT *eos_task_state, void *sus_end, void *task_end)
+{
+    if(task == NULL || task == eos_running_task)
+    {
+        *eos_jumper = sus_end;
+        *eos_task_state = kEOSTaskSuspended;
+        eos_running_task->block_source = kEOSBlockSrcSuspendCommand;
+        return task_end;
+    }
+  
+    EOSSuspendTaskISR(task);
+    return sus_end;  
+}
+
+void EOSResumeTaskISR(EOSTaskT task)
+{
+//    if(task == NULL)
+//    {
+//        task = eos_running_task;
+//    }
+    EOS_ASSERT(task != NULL);
+
+    
+    portEOS_DISABLE_ISR();
+    
+    if(task->block_source == kEOSBlockSrcSuspendCommand){
+        task->block_source = kEOSBlockSrcNone;
+        if(task->scheduler.parent_list != NULL && EOS_ITEM_BELONG_TO_LIST(suspended_list, task, scheduler))
+        {
+            //reomove from suspend list
+            EOS_REMOVE_FROM_LIST(suspended_list, task, scheduler);
+            EOS_ADD_TO_LIST(ready_list[task->priority], task, scheduler);
+        }
+    }
+    portEOS_ENABLE_ISR();
+}
+
+void EOSTaskDeleteISR(EOSTaskT task)
+{
+//    if(task == NULL)
+//    {
+//        task = eos_running_task;
+//    }
+    EOS_ASSERT(task != NULL);
+
+    
+    portEOS_DISABLE_ISR();
+    
+    if(task != eos_running_task)
+    {
+        //remove from any list
+        if(task->scheduler.parent_list != NULL )
+        {
+            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->scheduler.parent_list), task, scheduler);
+        }
+        if(task->sync.parent_list != NULL)
+        {
+            EOS_REMOVE_FROM_LIST(*((EOSListT *)task->sync.parent_list), task, sync);
+        }
+    }
+    
+    portEOS_ENABLE_ISR();
+}
+
+void *EOSInternalDelay(uint32_t ticks, EOSJumperT *jumper, EOSTaskStateT *state, void* end_delay, void* end_task)
+{
+    *jumper = end_delay;
+    
+    if(ticks == 0)
+    {
+        *state = kEOSTaskYield;
+        return end_task;
+    }
+    eos_running_task->block_source = kEOSBlockSrcDelay;
+    eos_running_task->ticks_to_delay = ticks;
+    *state = ((ticks) == EOS_INFINITE_TICKS) ?
+            kEOSTaskSuspended : kEOSTaskBlocked;
+    return end_task;
 }

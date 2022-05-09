@@ -31,7 +31,7 @@ static void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
 {
     EOSTaskT index_task;
 
-
+   
     //look for a task that has less priority than actual task
     for(index_task = EOS_GET_HEAD_FROM_LIST(semaphore->waiting_tasks); 
         index_task != NULL; index_task = EOS_GET_NEXT_FROM_ITEM(index_task, sync))
@@ -58,16 +58,17 @@ static void EOSSemaphoreAddBlockedTask(EOSSemaphoreT semaphore, EOSTaskT task)
         {
             //task inherint priority
 
-            //if first time inhirentace
-            if(semaphore->original_priority == 0)
-                semaphore->original_priority = index_task->priority;
-
             //check if task belong to any list
             if(index_task->scheduler.parent_list != NULL){
                 //check if task belong to ready list
                 if(EOS_ITEM_BELONG_TO_LIST(ready_list[index_task->priority], index_task, scheduler)){
+                    //remove from index if task was "pre-scheduled"
+                    if(EOS_GET_INDEX_FROM_LIST(ready_list[index_task->priority]) == index_task)
+                    {
+                        EOS_SET_LIST_INDEX(ready_list[index_task->priority], EOS_GET_NEXT_FROM_ITEM(index_task, scheduler));
+                    }
                     //level up priority
-                    EOS_REMOVE_FROM_LIST(*((EOSListT *)index_task->scheduler.parent_list), index_task, scheduler);
+                    EOS_REMOVE_FROM_LIST(ready_list[index_task->priority], index_task, scheduler);
                     EOS_ADD_TO_LIST(ready_list[task->priority], index_task, scheduler);
                 }
             }
@@ -89,20 +90,23 @@ void *EOSInternalSemaphoreTake(EOSSemaphoreT semaphore, EOSJumperT *jumper, EOST
         EOS_GET_INDEX_FROM_LIST(semaphore->waiting_tasks) == eos_running_task){                                                               
         
         if(semaphore->free_keys)
-            semaphore->free_keys--;                                                             
+            semaphore->free_keys--;      
         
+        if(semaphore->type != kEOSSemphrMutex)
+            EOS_SET_LIST_INDEX(semaphore->waiting_tasks, NULL);
+        else
         //the list remove is auto done by EOSSemaphoreGiveISR
-
-        EOS_SET_LIST_INDEX(semaphore->waiting_tasks, eos_running_task);                      
+            EOS_SET_LIST_INDEX(semaphore->waiting_tasks, eos_running_task);                      
         portEOS_ENABLE_ISR();
+        *success = true;
         return semaphore_end;                                     
-    }                                                                                       
+    }
     if(eos_running_task->ticks_to_delay == 0){   
         //this list remove is auto done by scheduler if any              
         *success = false;                              
         portEOS_ENABLE_ISR();                                                               
         return semaphore_end;                                     
-    }                                                                                       
+    }
     EOSSemaphoreAddBlockedTask(semaphore, eos_running_task);                                
     *jumper =  wait;
     eos_running_task->block_source = kEOSBlockSrcSemaphore;                                 
@@ -129,20 +133,29 @@ bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore)
 
     holding_task = EOS_GET_INDEX_FROM_LIST(semaphore->waiting_tasks);
     
-    //deinhirent priority
-    if(holding_task != NULL && semaphore->original_priority != 0)
+    //disinherit priority
+    if(holding_task != NULL)
     {
-        //check if task belong to any list
-        if(holding_task->scheduler.parent_list != NULL){
-            //check if task belong to ready list
-            if(EOS_ITEM_BELONG_TO_LIST(ready_list[holding_task->priority], holding_task, scheduler)){
-                //level down priority
-                EOS_REMOVE_FROM_LIST(*((EOSListT *)holding_task->scheduler.parent_list), holding_task, scheduler);
-                EOS_ADD_TO_LIST(ready_list[semaphore->original_priority], holding_task, scheduler);
+        if(holding_task->priority != holding_task->original_priority)
+        {
+            //check if task belong to any list
+            if(holding_task->scheduler.parent_list != NULL){
+                //check if task belong to ready list
+                if(EOS_ITEM_BELONG_TO_LIST(ready_list[holding_task->priority], holding_task, scheduler)){
+
+                    //check list index to avoid closed loops beetween priorities
+                    if(EOS_GET_INDEX_FROM_LIST(ready_list[holding_task->priority]) == holding_task)
+                    {
+                        EOS_SET_LIST_INDEX(ready_list[holding_task->priority], EOS_GET_NEXT_FROM_ITEM(holding_task, scheduler));
+                    }
+                    //level down priority
+                    EOS_REMOVE_FROM_LIST(ready_list[holding_task->priority], holding_task, scheduler);
+                    EOS_ADD_TO_LIST(ready_list[holding_task->original_priority], holding_task, scheduler);
+
+                }
             }
+            holding_task->priority = holding_task->original_priority;
         }
-        holding_task->priority = semaphore->original_priority;
-        semaphore->original_priority = 0;
     }
 
     do{
@@ -193,6 +206,5 @@ EOSSemaphoreT EOSCreateStaticSemphrGen(EOSStaticSemaphoreT *semaphore_buffer, ui
     semaphore_buffer->waiting_tasks.tail = NULL;
     semaphore_buffer->waiting_tasks.index = NULL;
     semaphore_buffer->type = type;
-    semaphore_buffer->original_priority = 0;
     return semaphore_buffer;
 }

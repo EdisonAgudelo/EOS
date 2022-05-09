@@ -36,3 +36,45 @@ bool EOSCheckOverFlow(EOSStackT stack, uint32_t size)
     }
     return false;
 }
+
+void *EOSInternalBegin(EOSJumperT *eos_jumper, void *begin, void *end)
+{
+    EOS_ASSERT(eos_jumper != NULL);
+    if(*eos_jumper == NULL) {
+        *eos_jumper = begin;
+    }
+    //EOS_ASSERT(*eos_jumper >= begin);
+    EOS_ASSERT((((size_t)*eos_jumper) & 0x1) == 0);
+    return *eos_jumper;
+}
+
+void EOSInternalNestBegin(EOSStackT stack, EOSJumperT *jumper, void *fun_start)
+{                                             
+    EOSJumperT *nest_jumper;
+    EOSTaskStateT *nest_state;
+    
+    EOS_STACK_POP(nest_state, stack);
+    EOS_STACK_POP(nest_jumper, stack);
+    EOS_ASSERT(nest_jumper != NULL);
+    *nest_jumper = NULL;     
+    *jumper = fun_start;
+}
+
+void *EOSInternalNestEnd(EOSStackT stack, EOSTaskStateT *state, void *nest_end, void *task_end)
+{
+    EOSTaskStateT *nest_stat;
+    EOS_STACK_POP(nest_stat, stack);
+    EOS_ASSERT(nest_stat != NULL);
+    if(*nest_stat != kEOSTaskEnded){
+        *state = *nest_stat;
+        return  task_end;
+    }
+    return nest_end;
+}
+
+void EOSInternalInit(EOSStackT *stack, EOSJumperT **jumper, EOSTaskStateT **state){
+    EOS_STACK_POP(*state, (*stack));
+    EOS_STACK_POP(*jumper, (*stack));
+    
+    EOS_ASSERT((((size_t)*stack) & 0x1) == 0);
+}

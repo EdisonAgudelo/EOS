@@ -39,7 +39,8 @@ typedef enum {
     kEOSBlockSrcDelay,
     kEOSBlockSrcMail,
     kEOSBlockSrcSemaphore,
-    kEOSBlockSrcQueue
+    kEOSBlockSrcQueue,
+    kEOSBlockSrcSuspendCommand
 } EOSBlockSourceT;
 
 typedef struct EOSStaticTask
@@ -69,6 +70,9 @@ typedef struct EOSStaticTask
         void *parent_list; //owner list
     } scheduler, sync; //scheduler basically for time events. sync for resorces as mutex
 
+    //for inheritance
+    uint8_t original_priority;
+    
     //stats generation
     uint32_t execution_time; //this shouldn't be ticks source... it must a faster timer
 
@@ -97,14 +101,24 @@ typedef struct
 //block or dalay a task execution for n ticks.
 #define EOS_DELAY(ticks)                                                                \
     do {                                                                                \
-        *eos_jumper = &&CONCAT(EOS_DELAY_LABEL, __LINE__);                              \
-        eos_running_task->block_source = kEOSBlockSrcDelay;                             \
-        eos_running_task->ticks_to_delay = ticks;                                       \
-        *eos_task_state = ((eos_running_task->ticks_to_delay) == EOS_INFINITE_TICKS) ?  \
-                kEOSTaskSuspended : kEOSTaskBlocked;                                    \
-        goto EOS_END_LABEL;                                                             \
+        goto *EOSInternalDelay(ticks, eos_jumper, eos_task_state,                       \
+                                &&CONCAT(EOS_DELAY_LABEL, __LINE__),                    \
+                                &&EOS_END_LABEL);                                       \
         CONCAT(EOS_DELAY_LABEL, __LINE__):;                                             \
     }while(0)
+
+
+#define EOS_SUSPEND(task)                                                               \
+    do {                                                                                \
+        goto *EOSInternalSuspendTask(task, eos_jumper, eos_task_state,                      \
+                                &&CONCAT(EOS_SUSPEND_END_LABEL, __LINE__),              \
+                                &&EOS_END_LABEL);                                       \
+        CONCAT(EOS_SUSPEND_END_LABEL, __LINE__):;                                       \
+    }while(0)
+
+
+void *EOSInternalDelay(uint32_t ticks, EOSJumperT *jumper, EOSTaskStateT *state, void* end_delay, void* end_task);
+void *EOSInternalSuspendTask(EOSTaskT task, EOSJumperT *eos_jumper, EOSTaskStateT *eos_task_state, void *sus_end, void *task_end);
 
 //actual tick value
 extern uint32_t eos_tick;
@@ -127,9 +141,13 @@ void EOSIdleHook(void);
 //get just a particular task info
 bool EOSGetTaskInfo(EOSTaskT ref_task, EOSTaskInfoT *info);
 //get all task information with limit
-bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count);
+bool EOSGetAllTaskInfo(EOSTaskInfoT *info, uint16_t *count, uint32_t *total_run_time);
+//reanude a suspended task
+void EOSResumeTaskISR(EOSTaskT task);
+//remvoe any non active task from scheduler
+void EOSTaskDeleteISR(EOSTaskT task);
 
-
+void EOSSuspendTaskISR(EOSTaskT task);
 
 /*
 //simple example

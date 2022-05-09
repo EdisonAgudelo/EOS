@@ -48,7 +48,7 @@ typedef EOSStaticQueueT * EOSQueueT;
 //return true if and element was retrieved
 #define EOS_QUEUE_RECEIVE(queue, item, ticks_to_wait)                                           \
         ({                                                                                      \
-            bool success = true;                                                                \
+            bool success;                                                                       \
             eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
             CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                             \
             goto *EOSInternalQueueReceive(queue, item, eos_jumper, eos_task_state, &success,    \
@@ -65,7 +65,7 @@ typedef EOSStaticQueueT * EOSQueueT;
 
 #define EOS_QUEUE_SEND(queue, item, flags, ticks_to_wait)                                       \
         ({                                                                                      \
-            bool success = true;                                                                \
+            bool success;                                                                       \
             eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
             CONCAT(EOS_QUEUE_WAIT_LABEL, __LINE__):                                             \
             goto *EOSInternalQueueSend(queue, item, flags, eos_jumper, eos_task_state, &success,\
@@ -77,7 +77,7 @@ typedef EOSStaticQueueT * EOSQueueT;
             success = true;                                                                     \
             CONCAT(EOS_QUEUE_END_LABEL, __LINE__):                                              \
             success;                                                                            \
-        })   
+        })  
 
 typedef enum{
     kEOSQueueWriteBack = 0,
