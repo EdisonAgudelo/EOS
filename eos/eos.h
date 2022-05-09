@@ -38,17 +38,15 @@ SOFTWARE.
 
 
 //should be placed at top of any task or nest function
-#define EOS_INIT(stack)                     \
-    EOSJumperT *eos_jumper;                 \
-    EOSTaskStateT *eos_task_state;          \
-    EOS_STACK_POP(eos_task_state, stack);   \
-    EOS_STACK_POP(eos_jumper, stack)         
+#define EOS_INIT(stack)                                         \
+    EOSJumperT *eos_jumper;                                     \
+    EOSTaskStateT *eos_task_state;                              \
+    EOSInternalInit(&(stack), &eos_jumper, &eos_task_state);
+
     
 //this goes after all context restoration, an points to the very beggining of the program
-#define EOS_BEGIN()                                                                         \
-    if(*eos_jumper == NULL) {*eos_jumper = &&EOS_BEGIN_LABEL;}                              \
-    else {EOS_ASSERT(*eos_jumper >= &&EOS_BEGIN_LABEL && *eos_jumper <= &&EOS_END_LABEL);}      \
-    goto **eos_jumper;                                                                      \
+#define EOS_BEGIN()     \
+    goto *EOSInternalBegin(eos_jumper, &&EOS_BEGIN_LABEL, &&EOS_END_LABEL);                       \
     EOS_BEGIN_LABEL:
   
 //if an error happen... an nest function or a task should exit inmediately... call this routine  
@@ -63,7 +61,7 @@ SOFTWARE.
     *eos_task_state = kEOSTaskEnded;    \
     EOS_END_LABEL:              
 
-//Allow task yielding... this allow other task execution (copperative philosofy)
+//Allow task yielding... this allows other task execution (cooperative philosophy)
 #define EOS_YIELD()                                                                 \
     do {                                                                            \
         *eos_jumper = &&CONCAT(EOS_YIELD_LABEL, __LINE__);                          \
@@ -72,59 +70,48 @@ SOFTWARE.
         CONCAT(EOS_YIELD_LABEL, __LINE__):;                                         \
     } while(0)
 
-//used to restore variables values from the stack. This is the pointer version
+//used to restore variables values from the stack. This is the pointer version (recommended)
 #define EOS_STACK_POP(ptr, stack)           \
     do{                                     \
-        ptr = (void *)stack;                \
-        stack += sizeof(*ptr);              \
+        ptr = ((void *)stack);             \
+        stack += sizeof(size_t) * (1 + ((sizeof(*ptr)- 1) / sizeof(size_t)));               \
     }while(0)
 //used to return back a value to the stack... Normally this is not used in typical context implementation
 #define EOS_STACK_PUSH(ptr, stack)          \
     do{                                     \
-        stack -= sizeof(*ptr);              \
+        stack -= sizeof(size_t) * (1 + ((sizeof(*ptr)- 1) / sizeof(size_t)));               \
         ptr = NULL;                         \
     }while(0)
     
-//used to restore variables values from the stack. This is the copy version
+//used to restore variables values from the stack. This is the copy version and should be only used 
+//for variables that doen's requiere to "stay in memory" when task is no executing (like a index). 
+//It is recommended for variables that doesn't give a memory reference to other functions.
 #define EOS_STACK_POP_COPY(var, stack)          \
-    do{                                         \
+    {                                         \
         memcpy(&var, stack, sizeof(var));       \
-        stack += sizeof(var);                   \
+        stack += sizeof(size_t) * (1 + ((sizeof(var)- 1) / sizeof(size_t)));                   \
     }while(0)
 
 
 //used to update a value to the stack... Normally this goes after EOS_END
 #define EOS_STACK_PUSH_COPY(var, stack)         \
     do{                                         \
-        stack -= sizeof(var);                   \
+        stack -= sizeof(size_t) * (1 + ((sizeof(var)- 1) / sizeof(size_t)));                    \
         memcpy(stack, &var, sizeof(var));       \
     }while(0)
 
-//if you need to call a function that may yield or block the calling task. This should go before function call
+//if you need to call a function that may yield or block the executing task. This should go before function call
 #define EOS_NEST_BEGIN(stack)                               \
-    *eos_jumper = &&CONCAT(EOS_NEST_FUNC_LABEL, __LINE__);  \
-    do{                                                     \
-        EOSJumperT *eos_temp_jumper;                        \
-        EOSTaskStateT *eos_temp_task_state;                 \
-        EOS_STACK_POP(eos_temp_task_state, stack);          \
-        EOS_STACK_POP(eos_temp_jumper, stack);              \
-        *eos_temp_jumper = NULL;                            \
-        EOS_STACK_PUSH(eos_temp_task_state, stack);         \
-        EOS_STACK_PUSH(eos_temp_jumper, stack);             \
-    }while(0);                                              \
-    CONCAT(EOS_NEST_FUNC_LABEL, __LINE__):
+    EOSInternalNestBegin(stack, eos_jumper, &&CONCAT(EOS_NEST_START_LABEL, __LINE__));          \
+    CONCAT(EOS_NEST_START_LABEL, __LINE__):
 
 //if you need to call a function that may yield or block the calling task. This should go after function call    
-#define EOS_NEST_END(stack) \
-    do{ \
-        EOSTaskStateT *eos_temp_task_stat;\
-        EOS_STACK_POP(eos_temp_task_stat, stack); \
-        if(*eos_temp_task_stat != kEOSTaskEnded){ \
-            *eos_task_state = *eos_temp_task_stat; \
-            goto EOS_END_LABEL; \
-        }\
-        EOS_STACK_PUSH(eos_temp_task_stat, stack); \
-    }while(0)
+#define EOS_NEST_END(stack)                                 \
+    goto *EOSInternalNestEnd(stack, eos_task_state,       \
+                &&CONCAT(EOS_NEST_END_LABEL, __LINE__),     \
+                &&EOS_END_LABEL);                           \
+    CONCAT(EOS_NEST_END_LABEL, __LINE__):
+    
 
 //this is the minimun amout of bytes required per each stack an nested function
 #define EOS_MIN_STACK (sizeof(EOSJumperT) + sizeof(EOSTaskStateT))
@@ -150,12 +137,18 @@ typedef enum{
     kEOSTaskEnded, //the task/function ended all its routines
     kEOSTaskYield,  //task is allowing to change execution task if required... but is a kind of ready signal
     kEOSTaskBlocked, //for those task which are waiting for a timeout
-    kEOSTaskSuspended //indefinite block task
+    kEOSTaskSuspended, //indefinite block task
+    kEOSTaskRunning //only for task information purpuse. Not used in operation logic
 }EOSTaskStateT;
 
 //check overflow routine
 bool EOSCheckOverFlow(EOSStackT stack, uint32_t size);
 
+//Shouldn't be called directly by user
+void *EOSInternalBegin(EOSJumperT *eos_jumper, void *begin, void *end);
+void EOSInternalNestBegin(EOSStackT stack, EOSJumperT *jumper, void *fun_start);
+void *EOSInternalNestEnd(EOSStackT stack, EOSTaskStateT *state, void *nest_end, void *task_end);
+void EOSInternalInit(EOSStackT *stack, EOSJumperT **jumper, EOSTaskStateT **state);
 //a typical task implementation with this basic features looks like
 /*
 #include <eos.h>

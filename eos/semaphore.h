@@ -35,7 +35,7 @@ SOFTWARE.
 //return true if take was success
 #define EOS_SEMAPHORE_TAKE(semaphore, ticks_to_wait)                                            \
         ({                                                                                      \
-            bool success = true;                                                                \
+            bool success;                                                                \
             eos_running_task->ticks_to_delay = (ticks_to_wait);                                 \
             CONCAT(EOS_SEMAPHORE_WAIT_LABEL, __LINE__):                                         \
             goto *EOSInternalSemaphoreTake(semaphore, eos_jumper, eos_task_state, &success,     \
@@ -63,7 +63,6 @@ typedef struct {
     EOSSemaphoreTypeT type; 
     
     EOSListT waiting_tasks;  //a list of blocked task waiting for this resource. Index of this list is the holding task
-    uint8_t original_priority; //if task was rising up in priority, this saves the original task priority 0 no inhirentance
     
 } EOSStaticSemaphoreT;
 
@@ -83,6 +82,7 @@ bool EOSSemaphoreGiveISR(EOSSemaphoreT semaphore);
 //shouldn't be called by user directly
 void *EOSInternalSemaphoreTake(EOSSemaphoreT semaphore, EOSJumperT *jumper, EOSTaskStateT *state,
                         bool *success, void *wait, void *semaphore_end, void *task_end);
+
 
 
 #endif

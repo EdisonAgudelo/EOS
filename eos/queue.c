@@ -103,6 +103,7 @@ void *EOSInternalQueueReceive(EOSQueueT queue, void *item, EOSJumperT *jumper, E
                 *jumper = yield;
                 return task_end;                                                              
             }    
+            *success = true;
             return queue_end;
         }                                                                                                     
     }                                                                                                       
@@ -233,6 +234,7 @@ void *EOSInternalQueueSend(EOSQueueT queue, void *item, EOSQueueFlagsT flags, EO
             *jumper = yield;
             return task_end;                                                                                     
         }
+        *success = true;
         return queue_end;                                                   
     }                                                                                                      
     if(eos_running_task->ticks_to_delay == 0){                                                              
