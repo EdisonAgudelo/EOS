@@ -28,7 +28,9 @@ SOFTWARE.
 
 #include <string.h>
 
-
+//calculate how many ticks is left even if ticks overflow //useful for long term applications
+#define EOS_DELAY_REMAIN(unblock_tick)                      \
+    EOS_TICK_DIFFERENCE(eos_tick, unblock_tick)
 
 
 //holds the actual tick of system
@@ -170,7 +172,7 @@ void EOSScheduler(void)
         
         portEOS_DISABLE_ISR();
         portEOS_TMR_STATS_GET(&tmr_stats_end); 
-        eos_running_task->execution_time += EOS_TIME_DIFFERENCE(tmr_stats_init, tmr_stats_end);
+        eos_running_task->execution_time += EOS_TICK_DIFFERENCE(tmr_stats_init, tmr_stats_end);
         
         //before any removal... save the next task to execute
         

@@ -116,6 +116,13 @@ typedef struct
         CONCAT(EOS_SUSPEND_END_LABEL, __LINE__):;                                       \
     }while(0)
 
+#define EOS_TICK() eos_tick
+
+#define EOS_TICK_DIFFERENCE(ref, act)           \
+    ((ref) <= (act) ?                           \
+    ((act) - (ref)) :                           \
+    ((0xffffffff - ((ref) - (act))) + 1))
+
 
 void *EOSInternalDelay(uint32_t ticks, EOSJumperT *jumper, EOSTaskStateT *state, void* end_delay, void* end_task);
 void *EOSInternalSuspendTask(EOSTaskT task, EOSJumperT *eos_jumper, EOSTaskStateT *eos_task_state, void *sus_end, void *task_end);

@@ -22,8 +22,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+/**
+ * @file eos.h
+ * @author Edison Agudelo
+ * @version 1.0.0
+ * @copyright Copyright (c) 2022 Edison Agudelo
+ * @brief RTOS Kernel.
+ * 
+ * This file defines backbone elements of EOS. It basically allows handling 
+ * context, pc, and stack "restoration", and defines the most basic element 
+ * for "multithreading", yield operation. All other files rely on this 
+ * implementation. It is not required to include eos.h directly or in any specific 
+ * order, unless you just use this API.
+ * 
+ */
+
+///@cond
 #ifndef _EOS_H_
 #define _EOS_H_
+///@endcond
 
 #include <stdint.h>
 #include <string.h>
@@ -31,37 +48,253 @@ SOFTWARE.
 
 #include "config.h"
 
+
+/**
+ * @brief Macro Name Concatenation.
+ * 
+ * It is similar to \ref CONCAT, but this will concatenate anything inside 
+ * without expand first its values (in cases where any of both 
+ * concatenation items are a macro).
+ * 
+ * This is not used directly in EOS library.
+ */
 #define _CONCAT(x,y) x ## y
 #ifndef CONCAT
+/**
+ * @brief Macro Concatenation.
+ * 
+ * This Macro concatenates macro names with any other macro or symbol. 
+ * If Macro has any value, that value will be concatenated. This is 
+ * really important for OES kernel jumps (due to it helps to generate 
+ * unique labels with __LINE__ macro).
+ * 
+ * For example, if there is this piece of code:
+ * @code
+ *  //...       
+ *  
+ *  CONCAT(MY_LABEL_JUMP, __LINE__):
+ *  
+ *  //...
+ * @endcode 
+ * 
+ * Considering that __LINE___ is 26, the macro will expand to:
+ * @code
+ *  //...
+ * 
+ *  MY_LABEL_JUMP26:
+ * 
+ *  //...
+ * 
+ * @endcode
+ * 
+ */
 #define CONCAT(x,y) _CONCAT(x,y)
 #endif
 
 
-//should be placed at top of any task or nest function
+/**
+ * @brief INIT EOS Context.
+ * 
+ * This Macro should be placed in every function where it is going to 
+ * handle any kind of EOS API. Normally Task functions and nested functions. 
+ * There is a known exception when it can be ignored, and that is when a 
+ * function is just a wrapper.
+ * 
+ * It should go before any function body, and can go after variable declaration.
+ * 
+ * @code
+ * //recommended way.
+ * void Task1(EOSStackT stack) {
+ *  int i;
+ * 
+ *  EOS_INIT(stack);
+ * 
+ *  //...
+ * }
+ * 
+ * //it is also ok.
+ * void Task2(EOSStackT stack) {
+ *  EOS_INIT(stack);
+ * 
+ *  int i;
+ * 
+ *  //...
+ * }
+ * 
+ * //here EOS_INIT can be ignored
+ * int FunctionWrapper(EOSStackT stack, int option){
+ *      switch (option) {
+ *          case 0:
+ *              return Function0(stack);
+ *          case 23:
+ *              return Function23(stack);
+ * 
+ *          //...
+ *      }
+ * }
+ * 
+ * @endcode
+ * 
+ * @param[in] stack Stack variable to initialize. 
+ *                  Every Task function or nested function must be provided with one @ref EOSStackT.
+ * @return Nothing.
+ */
 #define EOS_INIT(stack)                                         \
     EOSJumperT *eos_jumper;                                     \
     EOSTaskStateT *eos_task_state;                              \
     EOSInternalInit(&(stack), &eos_jumper, &eos_task_state);
 
     
-//this goes after all context restoration, an points to the very beggining of the program
+/**
+ * @brief EOS Task or nest function start point.
+ * 
+ * All code placed after this macro is going to execute as a normal 
+ * task with the expected behaviors. What it does internally is to 
+ * go to the last execution point where it was in a previous context 
+ * switch command, If it is the first call just start executing from 
+ * "the beginning".
+ * 
+ * @warning Any code placed before @ref EOS_BEGIN macro has no granted 
+ * behavior except for cases where documentation explicitly request it.
+ * 
+ * This macro must be called if @ref EOS_INIT is placed, normally after @ref EOS_INIT.
+ * 
+ * @code
+ * void Task1(EOSStackT stack) {
+ *  int i;
+ * 
+ *  EOS_INIT(stack);
+ *  
+ *  //any instruction coding before this macro has no granted behavior.
+ *  EOS_BEGIN();
+ * 
+ *  //...
+ * }
+ * @endcode
+ * 
+ * @return Nothing.
+ * 
+ */
 #define EOS_BEGIN()     \
     goto *EOSInternalBegin(eos_jumper, &&EOS_BEGIN_LABEL, &&EOS_END_LABEL);                       \
     EOS_BEGIN_LABEL:
-  
-//if an error happen... an nest function or a task should exit inmediately... call this routine  
+
+
+/**
+ * @brief Task or nest function end point or return point.
+ * 
+ * @ref EOS_END tells the kernel where the function or task has ended. It must 
+ * be placed ant the button of all instruction if @ref EOS_INIT is called.
+ * 
+ * @warning Any code after @ref EOS_END has no granted behavior except for 
+ * cases where documentation explicitly requests it.
+ * 
+ * @code 
+ * 
+ * void Task1(EOSStackT stack) {
+ *  int i;
+ * 
+ *  EOS_INIT(stack);
+ *  
+ *  EOS_BEGIN();
+ * 
+ *  //...
+ * 
+ *  // "Normal" execution code
+ * 
+ *  //...
+ * 
+ *  EOS_END();
+ *  //any instruction coding after this macro has no granted behavior.
+ * }
+ * @endcode
+ * 
+ * 
+ * @warning All tasks or nested functions must always end in the same place. And that 
+ * is marked by @ref EOS_END macro. This means that any return statement before 
+ * @ref EOS_END macro must be avoided.
+ * 
+ * @warning It is only possible to have 1 @ref EOS_END macro call per function 
+ * or task. If you need multiple endpoints or return points, use @ref EOS_EXIT 
+ * instead of return. If you need to return any constant or variable, make sure 
+ * that the only return statement returns a variable preloaded with the desired 
+ * return value.
+ * 
+ * @code 
+ * 
+ * int Task1(EOSStackT stack) {
+ *  int ret_val;
+ * 
+ *  EOS_INIT(stack);
+ *  EOS_BEGIN();
+ * 
+ *  //...
+ * 
+ *  if (BadCondition)
+ *     return -1;   // wrong. Not allowed!
+ * 
+ * // Use this instead
+ *  if (BadCondition) {
+ *      ret_val = -1;
+ *      EOS_EXIT(); //this jumps directly to EOS_END
+ * }
+ * 
+ *  //...
+ * 
+ *  //Consider that if the code reaches this point, then no error has 
+ *  //occurred, so return a no error value. In this example, 0.
+ *  ret_val = 0;
+ * 
+ *  EOS_END();
+ *  return ret_val; //Always goes at the end of function
+ * }
+ * 
+ * @endcode 
+ * 
+ * @return Nothing.
+ * 
+ */
+#define EOS_END()                       \
+    *eos_task_state = kEOSTaskEnded;    \
+    EOS_END_LABEL:
+
+/**
+ * @brief Abort function execution.
+ * 
+ * When you have to return inside a function body, the only way to do this is by 
+ * this macro. This is because, as @ref EOS_END explains, there is a constraint 
+ * on where the return label can be placed. So this helps to "fix" that constraint.
+ * 
+ * @note \ref EOS_EXIT can be called on a "success" or in an "error" event. The 
+ * user itself has this liberty yet. \ref EOS_EXIT only makes the program jump to 
+ * the end part of the function and notify the EOS kernel that that function has 
+ * just ended.
+ * 
+ * @warning Also note that this is normally called in nested functions, as tasks 
+ * are normally running forever. Calling this in a task body will finish its 
+ * execution immediately.
+ * 
+ * @return Nothing.
+ * 
+ */
 #define EOS_EXIT()                              \
         do {                                    \
             *eos_task_state = kEOSTaskEnded;    \
             goto EOS_END_LABEL;                 \
         }while(0)
 
-//should be placed at the bottom of the nest function or task before return or push copy operations
-#define EOS_END()                       \
-    *eos_task_state = kEOSTaskEnded;    \
-    EOS_END_LABEL:              
-
-//Allow task yielding... this allows other task execution (cooperative philosophy)
+         
+/**
+ * @brief Allow task switching. 
+ * 
+ * This is the most basic multi-thread element available in EOS. When a task 
+ * starts to execute, the only way for EOS can perform “task switching”, is 
+ * when the running task has been blocked or has issued a yielding command. 
+ * The yield itself doesn't block the task execution, it just advises the EOS 
+ * that it can run another task if available (It may look for a higher priority 
+ * task if scheduler is used or run other tasks in the same priority level).
+ * 
+ */
 #define EOS_YIELD()                                                                 \
     do {                                                                            \
         *eos_jumper = &&CONCAT(EOS_YIELD_LABEL, __LINE__);                          \
